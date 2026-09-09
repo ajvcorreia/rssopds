@@ -1,0 +1,38 @@
+{% extends "base.html" %}
+{% block body %}
+<h1>Settings</h1>
+<p class="sub">Saving reloads the schedule; nothing here needs a restart.</p>
+
+<form method="post" action="/settings">
+{% for group, fields in groups.items() %}
+<div class="card">
+  <h2 style="margin-top:0">{{ group }}</h2>
+  {% for field in fields %}
+  <label>{{ field.label }}
+    {% if field.help %}<span class="hint">{{ field.help }}</span>{% endif %}
+    {% if field.kind == 'int' %}
+      <input type="number" step="1" name="{{ field.key }}"
+             value="{{ values[field.key] }}">
+    {% elif field.kind == 'float' %}
+      <input type="number" step="0.01" name="{{ field.key }}"
+             value="{{ values[field.key] }}">
+    {% else %}
+      <input type="text" name="{{ field.key }}" value="{{ values[field.key] }}">
+    {% endif %}
+  </label>
+  {% endfor %}
+</div>
+{% endfor %}
+<button class="primary" type="submit">Save settings</button>
+</form>
+
+<div class="card">
+  <h2 style="margin-top:0">Not set here</h2>
+  <p class="small muted">Paths, the bind address and the optional HTTP basic
+    auth credentials come from environment variables, because they are needed
+    before the database is open. See <code>RSSOPDS_WEB_USER</code>,
+    <code>RSSOPDS_WEB_PASSWORD</code>, <code>RSSOPDS_OPDS_USER</code>,
+    <code>RSSOPDS_OPDS_PASSWORD</code> and <code>RSSOPDS_BASE_URL</code> in
+    <code>docker-compose.yml</code>.</p>
+</div>
+{% endblock %}

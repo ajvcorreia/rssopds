@@ -1,0 +1,220 @@
+{% extends "base.html" %}
+{% block body %}
+<h1>OPDS log</h1>
+<p class="sub">Every request the ereader makes to <code>/opds</code>, so you can
+  see whether it is connecting at all and how far its downloads got.</p>
+<p class="sub small">Bytes are what the server handed to the network, not a
+  receipt from the device — HTTP gives no such receipt. On books over a few
+  hundred KB an interrupted download shows up short; below that the whole body
+  fits in one socket buffer and will read as 100% even if the reader died.</p>
+
+<div class="card">
+  <div class="row" style="align-items:center">
+    <div style="flex:0 0 auto">
+      <span class="check" style="margin:0">
+        <input type="checkbox" id="live" checked>
+        <label for="live">Live <span id="dot" class="livedot"></span></label>
+      </span>
+    </div>
+    <div style="flex:0 0 auto" class="muted small" id="status">idle</div>
+    <div style="flex:0 0 auto;margin-left:auto">
+      {% for option, caption in [('', 'all'), ('catalog', 'catalog'),
+                                 ('download', 'downloads'), ('cover', 'covers'),
+                                 ('errors', 'errors')] %}
+      <a href="/opds-log{{ '?kind=' + option if option }}"
+         class="pill {{ 'ok' if kind == option }}">{{ caption }}</a>
+      {% endfor %}
+      <form class="inline" method="post" action="/opds-log/clear"
+            onsubmit="return confirm('Clear the whole OPDS log?')">
+        <button class="danger" type="submit">Clear</button>
+      </form>
+    </div>
+  </div>
+</div>
+
+<h2>Clients seen (last 7 days)</h2>
+<div class="card">
+  <table id="clients">
+    <thead>
+      <tr><th>Client</th><th>Device</th><th>Requests</th><th>Downloads</th>
+          <th>Errors</th><th>Transferred</th><th>Last seen</th></tr>
+    </thead>
+    <tbody>
+      {% for c in clients %}
+      <tr>
+        <td><strong>{{ c.client_ip or '—' }}</strong></td>
+        <td class="muted small ua">{{ c.user_agent or 'unknown' }}</td>
+        <td class="muted">{{ c.requests }}</td>
+        <td class="muted">{{ c.downloads }}</td>
+        <td>{% if c.errors %}<span class="pill bad">{{ c.errors }}</span>
+            {% else %}<span class="muted">0</span>{% endif %}</td>
+        <td class="muted">{{ '%.1f'|format(c.bytes / 1048576) }} MB</td>
+        <td class="muted small">{{ c.last_seen|localtime }}</td>
+      </tr>
+      {% else %}
+      <tr><td colspan="7" class="empty">No client has connected yet. Point the
+        ereader at <code>/opds</code> and this fills in.</td></tr>
+      {% endfor %}
+    </tbody>
+  </table>
+</div>
+
+<h2>Requests</h2>
+<div class="card">
+  <table id="log">
+    <thead>
+      <tr><th>Time</th><th>Client</th><th>Request</th><th>Status</th>
+          <th>Sent</th><th>Range</th><th>Took</th></tr>
+    </thead>
+    <tbody>
+      {% for e in entries %}
+      <tr>
+        <td class="muted small nowrap">{{ e.ts|localtime }}</td>
+        <td class="small">{{ e.client_ip or '—' }}
+          <div class="muted ua">{{ e.user_agent or '' }}</div></td>
+        <td class="small">
+          <span class="pill">{{ e.kind }}</span>
+          <code>{{ e.method }} {{ e.path }}</code>
+        </td>
+        <td>
+          {% if e.status >= 500 %}<span class="pill bad">{{ e.status }}</span>
+          {% elif e.status >= 400 %}<span class="pill warn">{{ e.status }}</span>
+          {% else %}<span class="pill ok">{{ e.status }}</span>{% endif %}
+        </td>
+        <td class="muted small nowrap">
+          {{ '%.0f'|format(e.bytes_sent / 1024) }} KB
+          {% if e.kind == 'download' and sizes.get(e.edition_id) %}
+            <span class="pill">{{ (100 * e.bytes_sent
+                                   / sizes[e.edition_id])|round|int }}%</span>
+          {% endif %}
+        </td>
+        <td class="muted small">{{ e.range_header or '—' }}</td>
+        <td class="muted small nowrap">{{ e.duration_ms }} ms</td>
+      </tr>
+      {% else %}
+      <tr><td colspan="7" class="empty">Nothing logged yet.</td></tr>
+      {% endfor %}
+    </tbody>
+  </table>
+</div>
+
+<style>
+.livedot { display:inline-block; width:8px; height:8px; border-radius:50%;
+  background:var(--good); margin-left:4px; vertical-align:middle; }
+.livedot.off { background:var(--muted); }
+.livedot.ping { animation:ping .6s ease-out; }
+@keyframes ping { 0% { transform:scale(2.2); opacity:.3 } 100% { transform:scale(1); opacity:1 } }
+.nowrap { white-space:nowrap; }
+.ua { max-width:230px; overflow:hidden; text-overflow:ellipsis;
+      white-space:nowrap; font-size:12px; }
+tr.fresh { animation:fade 2.5s ease-out; }
+@keyframes fade { from { background:rgba(127,196,143,.28) } to { background:transparent } }
+</style>
+
+<script>
+(function () {
+  const KIND = {{ kind|tojson }};
+  const log = document.querySelector('#log tbody');
+  const clientsBody = document.querySelector('#clients tbody');
+  const live = document.getElementById('live');
+  const dot = document.getElementById('dot');
+  const status = document.getElementById('status');
+  let sinceId = {{ entries[0].id if entries else 0 }};
+  let timer = null;
+
+  const esc = s => String(s == null ? '' : s).replace(/[&<>"]/g,
+    c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]));
+  const time = iso => new Date(iso).toLocaleTimeString([],
+    {hour: '2-digit', minute: '2-digit', second: '2-digit'});
+  const mb = n => (n / 1048576).toFixed(1) + ' MB';
+
+  function statusPill(code) {
+    const cls = code >= 500 ? 'bad' : code >= 400 ? 'warn' : 'ok';
+    return `<span class="pill ${cls}">${code}</span>`;
+  }
+
+  function rowHtml(e) {
+    const pct = e.pct === null || e.pct === undefined
+      ? '' : ` <span class="pill">${e.pct}%</span>`;
+    return `<tr class="fresh">
+      <td class="muted small nowrap">${time(e.ts)}</td>
+      <td class="small">${esc(e.client_ip) || '—'}
+        <div class="muted ua">${esc(e.user_agent)}</div></td>
+      <td class="small"><span class="pill">${esc(e.kind)}</span>
+        <code>${esc(e.method)} ${esc(e.path)}</code></td>
+      <td>${statusPill(e.status)}</td>
+      <td class="muted small nowrap">${(e.bytes / 1024).toFixed(0)} KB${pct}</td>
+      <td class="muted small">${esc(e.range) || '—'}</td>
+      <td class="muted small nowrap">${e.ms} ms</td></tr>`;
+  }
+
+  function clientHtml(c) {
+    const errs = c.errors
+      ? `<span class="pill bad">${c.errors}</span>`
+      : '<span class="muted">0</span>';
+    return `<tr>
+      <td><strong>${esc(c.client_ip) || '—'}</strong></td>
+      <td class="muted small ua">${esc(c.user_agent) || 'unknown'}</td>
+      <td class="muted">${c.requests}</td>
+      <td class="muted">${c.downloads}</td>
+      <td>${errs}</td>
+      <td class="muted">${mb(c.bytes)}</td>
+      <td class="muted small">${c.last_seen ? time(c.last_seen) : '—'}</td>
+    </tr>`;
+  }
+
+  async function tick() {
+    try {
+      const url = `/opds-log/data?since_id=${sinceId}`
+        + (KIND ? `&kind=${encodeURIComponent(KIND)}` : '');
+      const resp = await fetch(url, {headers: {'Accept': 'application/json'}});
+      if (!resp.ok) throw new Error('HTTP ' + resp.status);
+      const data = await resp.json();
+
+      if (data.entries.length) {
+        // The API returns newest first; prepend oldest first so order holds.
+        const placeholder = log.querySelector('.empty');
+        if (placeholder) placeholder.closest('tr').remove();
+        for (const e of data.entries.slice().reverse()) {
+          log.insertAdjacentHTML('afterbegin', rowHtml(e));
+          if (e.id > sinceId) sinceId = e.id;
+        }
+        while (log.rows.length > 200) log.deleteRow(log.rows.length - 1);
+        dot.classList.add('ping');
+        setTimeout(() => dot.classList.remove('ping'), 600);
+      }
+
+      // Client totals change with every request, so always repaint them.
+      if (data.clients.length) {
+        clientsBody.innerHTML = data.clients.map(clientHtml).join('');
+      }
+      status.textContent = 'updated ' + new Date().toLocaleTimeString();
+    } catch (err) {
+      status.textContent = 'refresh failed: ' + err.message;
+    }
+  }
+
+  function start() {
+    if (timer) return;
+    dot.classList.remove('off');
+    tick();
+    timer = setInterval(tick, 3000);
+  }
+
+  function stop() {
+    clearInterval(timer);
+    timer = null;
+    dot.classList.add('off');
+    status.textContent = 'paused';
+  }
+
+  live.addEventListener('change', () => live.checked ? start() : stop());
+  // Stop polling while the tab is hidden; no point waking a NAS every 3s.
+  document.addEventListener('visibilitychange', () => {
+    if (document.hidden) stop();
+    else if (live.checked) start();
+  });
+  start();
+})();
+</script>
+{% endblock %}

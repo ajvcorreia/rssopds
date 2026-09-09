@@ -1,0 +1,10 @@
+__pycache__/
+*.py[cod]
+.venv/
+venv/
+data/
+!data/.gitkeep
+*.db
+*.db-wal
+*.db-shm
+.env

@@ -1,0 +1,110 @@
+{% extends "base.html" %}
+{% block body %}
+<h1>Threads (Meta)</h1>
+<p class="sub">Setting up Threads accounts as a source.</p>
+
+<div class="card">
+  <h2 style="margin-top:0">How this works</h2>
+  <p>Threads has no RSS feed, and Meta's own Threads API only reads
+    <em>your own</em> account. To follow other people, this app goes through
+    ActivityPub instead:</p>
+  <ol class="small">
+    <li>The Threads user must have <strong>Fediverse sharing</strong> switched
+      on in their Threads settings. If they have not, their posts are not
+      visible to anything outside Threads and there is no way around it.</li>
+    <li>You need a bot account on any Mastodon instance, and an application
+      token for it with <code>read</code> scope.</li>
+    <li>That account follows the Threads handles you want
+      (<code>someone@threads.net</code>) — the form below does this.</li>
+    <li>Those follows go in a Mastodon list, and a feed of kind
+      <em>Fediverse</em> polls that list.</li>
+  </ol>
+  <p class="small"><strong>There is no backfill.</strong> You only receive
+    posts made after the follow, so a newly added account looks empty at first.
+    That is how federation works, not a fault here.</p>
+  <p class="small">Because the Mastodon API exposes
+    <code>in_reply_to_account_id</code>, self-threads are detected exactly
+    rather than guessed at — turn on <em>Merge self-threads</em> on the feed
+    and a chain of replies arrives as one article.</p>
+</div>
+
+<div class="card">
+  <h2 style="margin-top:0">1. Check the token</h2>
+  <form method="post" action="/threads/verify">
+    <div class="row">
+      <div><label>Instance
+        <input type="text" name="instance" required
+               placeholder="https://mastodon.social"></label></div>
+      <div><label>Access token
+        <input type="password" name="token" required
+               autocomplete="new-password"></label></div>
+    </div>
+    <p><button class="primary" type="submit">Verify and list lists</button></p>
+  </form>
+</div>
+
+<div class="card">
+  <h2 style="margin-top:0">2. Make a list (optional)</h2>
+  <p class="muted small">A list keeps the Threads follows separate from
+    everything else the bot account follows.</p>
+  <form method="post" action="/threads/create-list">
+    <div class="row">
+      <div><label>Instance
+        <input type="text" name="instance" required
+               placeholder="https://mastodon.social"></label></div>
+      <div><label>Access token
+        <input type="password" name="token" required
+               autocomplete="new-password"></label></div>
+      <div class="narrow"><label>List name
+        <input type="text" name="list_title" value="Threads"></label></div>
+    </div>
+    <p><button class="primary" type="submit">Create list</button></p>
+  </form>
+</div>
+
+<div class="card">
+  <h2 style="margin-top:0">3. Follow a Threads account</h2>
+  <form method="post" action="/threads/follow">
+    <div class="row">
+      <div><label>Instance
+        <input type="text" name="instance" required
+               placeholder="https://mastodon.social"></label></div>
+      <div><label>Access token
+        <input type="password" name="token" required
+               autocomplete="new-password"></label></div>
+    </div>
+    <div class="row">
+      <div><label>Handle
+        <span class="hint">The Threads username plus
+          <code>@threads.net</code>.</span>
+        <input type="text" name="handle" required
+               placeholder="someone@threads.net"></label></div>
+      <div class="narrow"><label>Add to list ID
+        <input type="text" name="list_id" placeholder="optional"></label></div>
+    </div>
+    <p><button class="primary" type="submit">Follow</button></p>
+  </form>
+</div>
+
+<h2>Fediverse feeds</h2>
+<div class="card">
+{% if feeds %}
+<table>
+  <tr><th>Feed</th><th>Instance</th><th>List</th><th>Accounts</th>
+      <th>Last poll</th></tr>
+  {% for feed in feeds %}
+  <tr>
+    <td><a href="/feeds/{{ feed.id }}/edit">{{ feed.title }}</a></td>
+    <td class="muted small">{{ feed.url }}</td>
+    <td class="muted">{{ feed.fedi_list_id or 'home' }}</td>
+    <td class="muted small">{{ feed.fedi_accounts or 'all in list' }}</td>
+    <td class="muted">{{ feed.last_polled_at|localtime }}</td>
+  </tr>
+  {% endfor %}
+</table>
+{% else %}
+<p class="empty">No fediverse feeds yet.
+  <a href="/feeds/new">Add one</a> with kind “Fediverse”.</p>
+{% endif %}
+</div>
+{% endblock %}

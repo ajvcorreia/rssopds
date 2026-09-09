@@ -1,0 +1,57 @@
+{% extends "base.html" %}
+{% block body %}
+<h1>Feeds</h1>
+<p class="sub">RSS and Atom sources, plus fediverse timelines (how Threads
+  content gets in — see the <a href="/threads">Threads</a> tab).</p>
+
+<p><a class="btn" href="/feeds/new">Add a feed</a></p>
+
+<div class="card">
+{% if feeds %}
+<table>
+  <tr>
+    <th>Feed</th><th>Kind</th><th>Category</th><th>Threads</th>
+    <th>Every</th><th>Items</th><th>Status</th><th></th>
+  </tr>
+  {% for feed in feeds %}
+  <tr>
+    <td>
+      <a href="/feeds/{{ feed.id }}/edit"><strong>{{ feed.title }}</strong></a>
+      <div class="muted small">{{ feed.url }}</div>
+    </td>
+    <td class="muted">{{ feed.kind.value }}</td>
+    <td class="muted">{{ feed.category.name if feed.category else '—' }}</td>
+    <td class="muted small">
+      {{ 'merge self-threads' if feed.thread_mode.value == 'merge_self'
+         else 'one post = one article' }}
+    </td>
+    <td class="muted">{{ feed.poll_interval_min }}m</td>
+    <td class="muted">{{ counts.get(feed.id, 0) }}</td>
+    <td>
+      {% if not feed.enabled %}<span class="pill">disabled</span>
+      {% elif feed.last_error %}<span class="pill bad"
+        title="{{ feed.last_error }}">error</span>
+      {% elif feed.last_ok_at %}<span class="pill ok">ok</span>
+      {% else %}<span class="pill warn">new</span>{% endif %}
+    </td>
+    <td class="actions">
+      <form class="inline" method="post" action="/feeds/{{ feed.id }}/poll">
+        <button type="submit">Poll</button>
+      </form>
+      <form class="inline" method="post" action="/feeds/{{ feed.id }}/delete"
+            onsubmit="return confirm('Delete {{ feed.title }} and all its items?')">
+        <button class="danger" type="submit">Delete</button>
+      </form>
+    </td>
+  </tr>
+  {% if feed.last_error %}
+  <tr><td colspan="8" class="small" style="color:var(--bad);padding-top:0">
+    {{ feed.last_error }}</td></tr>
+  {% endif %}
+  {% endfor %}
+</table>
+{% else %}
+<p class="empty">No feeds yet.</p>
+{% endif %}
+</div>
+{% endblock %}

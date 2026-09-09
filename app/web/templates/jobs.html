@@ -1,0 +1,49 @@
+{% extends "base.html" %}
+{% block body %}
+<h1>Jobs</h1>
+<p class="sub">What is scheduled, and what has run.</p>
+
+<h2>Scheduled</h2>
+<div class="card">
+{% if scheduled %}
+<table>
+  <tr><th>Job</th><th>Next run</th></tr>
+  {% for job in scheduled %}
+  <tr><td>{{ job.id }}</td>
+      <td class="muted">{{ job.next|localtime }}</td></tr>
+  {% endfor %}
+</table>
+{% else %}
+<p class="empty">Nothing scheduled — check that polling is enabled in
+  <a href="/settings">settings</a>.</p>
+{% endif %}
+</div>
+
+<h2>History</h2>
+<div class="card">
+{% if runs %}
+<table>
+  <tr><th>Job</th><th>Feed</th><th>Started</th><th>Took</th><th>New</th>
+      <th>Articles</th><th>Result</th></tr>
+  {% for run in runs %}
+  <tr>
+    <td>{{ run.job }}</td>
+    <td class="muted small">{{ run.feed.title if run.feed else '—' }}</td>
+    <td class="muted small">{{ run.started_at|localtime }}</td>
+    <td class="muted">{{ '%.1fs'|format(run.duration_s) if run.duration_s else '—' }}</td>
+    <td class="muted">{{ run.items_new or '' }}</td>
+    <td class="muted">{{ run.articles_made or '' }}</td>
+    <td>
+      {% if run.status.value == 'error' %}<span class="pill bad">error</span>
+      {% elif run.status.value == 'running' %}<span class="pill warn">running</span>
+      {% else %}<span class="pill ok">ok</span>{% endif %}
+      <span class="muted small">{{ run.message or '' }}</span>
+    </td>
+  </tr>
+  {% endfor %}
+</table>
+{% else %}
+<p class="empty">No job history yet.</p>
+{% endif %}
+</div>
+{% endblock %}

@@ -1,0 +1,46 @@
+{% extends "base.html" %}
+{% block body %}
+<p class="small"><a href="/articles">← Articles</a></p>
+<h1>{{ article.title or '(untitled)' }}</h1>
+<p class="sub">
+  {{ article.byline or 'no byline' }} ·
+  {{ article.feed.title if article.feed else 'no feed' }} ·
+  {{ article.published_at|localtime }} ·
+  {{ article.word_count }} words ·
+  cleaned by {{ article.cleaned_by or '—' }} ·
+  <span class="pill">{{ article.state.value }}</span>
+</p>
+
+{% if article.part_count > 1 %}
+<div class="card">
+  <strong>Merged self-thread</strong> of {{ article.part_count }} posts.
+  {% if article.thread_open_until %}
+  <div class="muted small">Held open until {{ article.thread_open_until|localtime }}
+    so later parts can still join.</div>
+  {% endif %}
+  <details>
+    <summary>Source posts</summary>
+    <table>
+      {% for item in article.items|sort(attribute='published_at') %}
+      <tr>
+        <td class="muted small" style="white-space:nowrap">
+          {{ item.published_at|localtime }}</td>
+        <td class="small">{{ item.guid }}</td>
+      </tr>
+      {% endfor %}
+    </table>
+  </details>
+</div>
+{% endif %}
+
+<div class="card">
+  {% if article.image_file %}
+  <p class="muted small">Hero image: <code>{{ article.image_file }}</code></p>
+  {% endif %}
+  <div style="max-width:44em">{{ article.body_html|safe }}</div>
+</div>
+
+{% if article.url %}
+<p class="small muted">Source: {{ article.url }}</p>
+{% endif %}
+{% endblock %}

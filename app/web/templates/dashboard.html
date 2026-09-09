@@ -1,0 +1,95 @@
+{% extends "base.html" %}
+{% block body %}
+<h1>Dashboard</h1>
+<p class="sub">
+  Scheduler {% if scheduler_running %}<span class="pill ok">running</span>
+  {% else %}<span class="pill bad">stopped</span>{% endif %}
+  &nbsp;·&nbsp;
+  <form class="inline" method="post" action="/run">
+    <button class="link" type="submit">Run the whole pipeline now</button>
+  </form>
+</p>
+
+<div class="grid">
+  <div class="stat"><b>{{ counts.get(ArticleState.pending, 0) }}</b>
+    <span>pending{% if held %} ({{ held }} threads held open){% endif %}</span></div>
+  <div class="stat"><b>{{ counts.get(ArticleState.ready, 0) }}</b>
+    <span>ready for the next edition</span></div>
+  <div class="stat"><b>{{ counts.get(ArticleState.published, 0) }}</b>
+    <span>waiting on the ereader</span></div>
+  <div class="stat"><b>{{ counts.get(ArticleState.delivered, 0) }}</b>
+    <span>read</span></div>
+  <div class="stat"><b>{{ counts.get(ArticleState.failed, 0) }}</b>
+    <span>failed</span></div>
+</div>
+
+<h2>In the catalogue now</h2>
+<div class="card">
+{% if catalog %}
+<table>
+  <tr><th>Category</th><th>Edition</th><th>Articles</th><th>Size</th><th>Built</th></tr>
+  {% for category, edition in catalog %}
+  <tr>
+    <td><strong>{{ category.name }}</strong></td>
+    <td>{{ edition.title }}</td>
+    <td>{{ edition.article_count }}</td>
+    <td class="muted">{{ '%.1f'|format(edition.size_bytes / 1048576) }} MB</td>
+    <td class="muted">{{ edition.created_at|localtime }}</td>
+  </tr>
+  {% endfor %}
+</table>
+{% else %}
+<p class="empty">The catalogue is empty — everything has been read.</p>
+{% endif %}
+</div>
+
+<h2>Feeds</h2>
+<div class="card">
+{% if feeds %}
+<table>
+  <tr><th>Feed</th><th>Kind</th><th>Last poll</th><th>Status</th></tr>
+  {% for feed in feeds %}
+  <tr>
+    <td><a href="/feeds/{{ feed.id }}/edit">{{ feed.title }}</a></td>
+    <td class="muted">{{ feed.kind.value }}</td>
+    <td class="muted">{{ feed.last_polled_at|localtime }}</td>
+    <td>
+      {% if not feed.enabled %}<span class="pill">disabled</span>
+      {% elif feed.last_error %}<span class="pill bad"
+        title="{{ feed.last_error }}">error ×{{ feed.consecutive_failures }}</span>
+      {% elif feed.last_ok_at %}<span class="pill ok">ok</span>
+      {% else %}<span class="pill warn">never polled</span>{% endif %}
+    </td>
+  </tr>
+  {% endfor %}
+</table>
+{% else %}
+<p class="empty">No feeds yet. <a href="/feeds/new">Add one</a>.</p>
+{% endif %}
+</div>
+
+<h2>Recent jobs</h2>
+<div class="card">
+{% if recent %}
+<table>
+  <tr><th>Job</th><th>Started</th><th>Took</th><th>Result</th></tr>
+  {% for run in recent %}
+  <tr>
+    <td>{{ run.job }}{% if run.feed %} <span class="muted small">·
+      {{ run.feed.title }}</span>{% endif %}</td>
+    <td class="muted">{{ run.started_at|localtime }}</td>
+    <td class="muted">{{ '%.1fs'|format(run.duration_s) if run.duration_s else '—' }}</td>
+    <td>
+      {% if run.status.value == 'error' %}<span class="pill bad">error</span>
+      {% elif run.status.value == 'running' %}<span class="pill warn">running</span>
+      {% else %}<span class="pill ok">ok</span>{% endif %}
+      <span class="muted small">{{ run.message or '' }}</span>
+    </td>
+  </tr>
+  {% endfor %}
+</table>
+{% else %}
+<p class="empty">Nothing has run yet.</p>
+{% endif %}
+</div>
+{% endblock %}

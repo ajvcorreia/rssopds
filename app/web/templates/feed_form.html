@@ -1,0 +1,167 @@
+{% extends "base.html" %}
+{% block body %}
+<h1>{{ 'Edit feed' if feed else 'Add a feed' }}</h1>
+<p class="sub">Everything about a feed is configured here.</p>
+
+<form method="post" action="/feeds/save">
+{% if feed %}<input type="hidden" name="feed_id" value="{{ feed.id }}">{% endif %}
+
+<div class="card">
+  <div class="row">
+    <div>
+      <label>Title
+        <span class="hint">Shown in the web UI and on each article's byline.</span>
+        <input type="text" name="title" required
+               value="{{ feed.title if feed else '' }}"></label>
+    </div>
+    <div class="narrow">
+      <label>Kind
+        <select name="kind" id="kind">
+          <option value="rss" {{ 'selected' if not feed or feed.kind.value == 'rss' }}>
+            RSS / Atom</option>
+          <option value="fediverse"
+                  {{ 'selected' if feed and feed.kind.value == 'fediverse' }}>
+            Fediverse (Threads)</option>
+        </select></label>
+    </div>
+  </div>
+
+  <label>URL
+    <span class="hint" id="url-hint">The feed URL.</span>
+    <input type="text" name="url" required
+           value="{{ feed.url if feed else '' }}"
+           placeholder="https://example.com/feed.xml"></label>
+
+  <div class="row">
+    <div>
+      <label>Category
+        <span class="hint">Decides which EPUB this feed's articles land in.</span>
+        <select name="category_id">
+          <option value="">— none —</option>
+          {% for category in categories %}
+          <option value="{{ category.id }}"
+            {{ 'selected' if feed and feed.category_id == category.id }}>
+            {{ category.name }}</option>
+          {% endfor %}
+        </select></label>
+    </div>
+    <div class="narrow">
+      <label>Poll every (min)
+        <input type="number" name="poll_interval_min" min="1" max="10080"
+               value="{{ feed.poll_interval_min if feed else 30 }}"></label>
+    </div>
+    <div class="narrow">
+      <label>Max items / poll
+        <input type="number" name="max_items_per_poll" min="1" max="500"
+               value="{{ feed.max_items_per_poll if feed else 50 }}"></label>
+    </div>
+  </div>
+</div>
+
+<div class="card" id="fedi-block">
+  <h2 style="margin-top:0">Fediverse / Threads</h2>
+  <p class="muted small">
+    Threads has no RSS feed. Posts are read over ActivityPub instead: a bot
+    account on a Mastodon instance follows the Threads handles you want, and
+    this feed polls that account's list timeline. The
+    <a href="/threads">Threads</a> tab will verify a token, make a list and
+    follow handles for you.
+  </p>
+
+  <label>Access token
+    <span class="hint">
+      {% if feed and feed.fedi_token %}Stored. Leave blank to keep it.
+      {% else %}A Mastodon application token with <code>read</code> scope.
+      {% endif %}
+    </span>
+    <input type="password" name="fedi_token" autocomplete="new-password"
+           placeholder="{{ '••••••••  (unchanged)' if feed and feed.fedi_token
+                           else 'paste token' }}"></label>
+
+  <div class="row">
+    <div class="narrow">
+      <label>List ID
+        <span class="hint">Blank polls the home timeline.</span>
+        <input type="text" name="fedi_list_id"
+               value="{{ feed.fedi_list_id or '' if feed else '' }}"></label>
+    </div>
+    <div>
+      <label>Only these accounts
+        <span class="hint">Comma separated, e.g.
+          <code>someone@threads.net</code>. Blank keeps everything in the list.</span>
+        <input type="text" name="fedi_accounts"
+               value="{{ feed.fedi_accounts or '' if feed else '' }}"></label>
+    </div>
+  </div>
+
+  <div class="check">
+    <input type="checkbox" id="skipreblogs" name="fedi_skip_reblogs" value="1"
+           {{ 'checked' if not feed or feed.fedi_skip_reblogs }}>
+    <label for="skipreblogs">Skip boosts and reposts</label>
+  </div>
+</div>
+
+<div class="card">
+  <h2 style="margin-top:0">Processing</h2>
+
+  <label>Thread handling
+    <span class="hint">
+      merge: a chain of self-replies becomes one article, held open for a while
+      so a thread still being written does not ship half-finished. Replies to
+      other people are dropped in this mode.
+    </span>
+    <select name="thread_mode">
+      <option value="none" {{ 'selected' if not feed or feed.thread_mode.value == 'none' }}>
+        One post = one article</option>
+      <option value="merge_self"
+              {{ 'selected' if feed and feed.thread_mode.value == 'merge_self' }}>
+        Merge self-threads into one article</option>
+    </select></label>
+
+  <div class="check">
+    <input type="checkbox" id="ft" name="extract_fulltext" value="1"
+           {{ 'checked' if not feed or feed.extract_fulltext }}>
+    <label for="ft">Fetch the full article when the feed only gives a teaser
+      <span class="hint">Leave off for fediverse feeds — the post is already
+        the whole thing.</span></label>
+  </div>
+  <div class="check">
+    <input type="checkbox" id="ai" name="clean_with_ai" value="1"
+           {{ 'checked' if not feed or feed.clean_with_ai }}>
+    <label for="ai">Clean with the local model
+      <span class="hint">Rule-based cleaning always runs; this adds an Ollama
+        pass on top, discarded automatically if it drops too much text.</span></label>
+  </div>
+  <div class="check">
+    <input type="checkbox" id="img" name="include_images" value="1"
+           {{ 'checked' if not feed or feed.include_images }}>
+    <label for="img">Include images</label>
+  </div>
+  <div class="check">
+    <input type="checkbox" id="en" name="enabled" value="1"
+           {{ 'checked' if not feed or feed.enabled }}>
+    <label for="en">Enabled</label>
+  </div>
+</div>
+
+<button class="primary" type="submit">Save feed</button>
+<a class="btn" href="/feeds">Cancel</a>
+</form>
+
+<script>
+(function () {
+  var kind = document.getElementById('kind');
+  var block = document.getElementById('fedi-block');
+  var hint = document.getElementById('url-hint');
+  function sync() {
+    var fedi = kind.value === 'fediverse';
+    block.style.display = fedi ? '' : 'none';
+    hint.textContent = fedi
+      ? 'Your Mastodon instance base URL, e.g. https://mastodon.social'
+      : 'The feed URL.';
+  }
+  kind.addEventListener('change', sync);
+  sync();
+})();
+</script>
+{% endblock %}

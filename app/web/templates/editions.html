@@ -1,0 +1,67 @@
+{% extends "base.html" %}
+{% block body %}
+<h1>Editions</h1>
+<p class="sub">Each EPUB, and whether the ereader actually finished
+  downloading it. Articles are only marked read once the whole file has
+  reached the device.</p>
+
+<p>
+  <form class="inline" method="post" action="/editions/build">
+    <button class="primary" type="submit">Build now</button>
+  </form>
+</p>
+
+<div class="card">
+{% if editions %}
+<table>
+  <tr><th>Edition</th><th>Articles</th><th>Size</th><th>Built</th>
+      <th>State</th><th>Downloads</th><th></th></tr>
+  {% for edition in editions %}
+  <tr>
+    <td>
+      <strong>{{ edition.title }}</strong>
+      <div class="muted small">{{ edition.epub_file or 'file pruned' }}</div>
+    </td>
+    <td class="muted">{{ edition.article_count }}</td>
+    <td class="muted">{{ '%.1f'|format(edition.size_bytes / 1048576) }} MB</td>
+    <td class="muted small">{{ edition.created_at|localtime }}</td>
+    <td>
+      {% if edition.state.value == 'available' %}<span class="pill warn">available</span>
+      {% elif edition.state.value == 'delivered' %}<span class="pill ok">delivered</span>
+      {% else %}<span class="pill">{{ edition.state.value }}</span>{% endif %}
+    </td>
+    <td class="small muted">
+      {% for delivery in edition.deliveries %}
+      <div>
+        {{ delivery.client_ip }} —
+        {{ '%.0f'|format(100 * delivery.bytes_sent / edition.size_bytes)
+           if edition.size_bytes else 0 }}%
+        {% if delivery.complete %}<span class="pill ok">complete</span>{% endif %}
+      </div>
+      {% else %}—{% endfor %}
+    </td>
+    <td class="actions">
+      {% if edition.epub_file %}
+      <a class="btn" href="/editions/{{ edition.id }}/download.epub">Download</a>
+      {% endif %}
+      {% if edition.state.value == 'delivered' %}
+      <form class="inline" method="post" action="/editions/{{ edition.id }}/undo">
+        <button type="submit" title="Put these articles back as unread">
+          Mark unread</button>
+      </form>
+      {% elif edition.state.value == 'available' %}
+      <form class="inline" method="post"
+            action="/editions/{{ edition.id }}/deliver">
+        <button type="submit" title="Mark its articles read without a download">
+          Mark read</button>
+      </form>
+      {% endif %}
+    </td>
+  </tr>
+  {% endfor %}
+</table>
+{% else %}
+<p class="empty">No editions built yet.</p>
+{% endif %}
+</div>
+{% endblock %}

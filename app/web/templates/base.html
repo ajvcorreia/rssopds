@@ -1,0 +1,115 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>{% block title %}RSSOPDS{% endblock %}</title>
+<style>
+:root {
+  --bg: #f6f5f2; --panel: #fff; --ink: #1c1c1a; --muted: #6b6b66;
+  --line: #dcdad4; --accent: #2f5d50; --warn: #8a5a00; --bad: #9b2c2c;
+  --good: #2f6f3e;
+}
+@media (prefers-color-scheme: dark) {
+  :root { --bg:#16161a; --panel:#1e1e23; --ink:#e9e8e4; --muted:#9b9a94;
+          --line:#33333a; --accent:#79c0aa; --warn:#e0a458; --bad:#e07a7a;
+          --good:#7fc48f; }
+}
+* { box-sizing: border-box; }
+body { margin:0; background:var(--bg); color:var(--ink);
+  font:15px/1.5 system-ui,-apple-system,"Segoe UI",sans-serif; }
+header { background:var(--panel); border-bottom:1px solid var(--line);
+  padding:0 20px; position:sticky; top:0; z-index:5; }
+nav { display:flex; gap:4px; align-items:center; flex-wrap:wrap;
+  max-width:1100px; margin:0 auto; }
+nav .brand { font-weight:700; letter-spacing:.02em; margin-right:16px;
+  padding:14px 0; color:var(--accent); }
+nav a { padding:14px 12px; color:var(--muted); text-decoration:none;
+  border-bottom:2px solid transparent; }
+nav a:hover { color:var(--ink); }
+nav a.on { color:var(--ink); border-bottom-color:var(--accent); }
+main { max-width:1100px; margin:0 auto; padding:24px 20px 60px; }
+h1 { font-size:1.4rem; margin:0 0 4px; }
+h2 { font-size:1.05rem; margin:28px 0 10px; }
+.sub { color:var(--muted); margin:0 0 20px; }
+.card { background:var(--panel); border:1px solid var(--line);
+  border-radius:10px; padding:16px 18px; margin-bottom:16px; }
+table { width:100%; border-collapse:collapse; font-size:14px; }
+th { text-align:left; color:var(--muted); font-weight:600; padding:8px 10px;
+  border-bottom:1px solid var(--line); white-space:nowrap; }
+td { padding:9px 10px; border-bottom:1px solid var(--line);
+  vertical-align:middle; }
+tr:last-child td { border-bottom:none; }
+a { color:var(--accent); }
+.grid { display:grid; gap:14px;
+  grid-template-columns:repeat(auto-fill,minmax(210px,1fr)); }
+.stat { background:var(--panel); border:1px solid var(--line);
+  border-radius:10px; padding:14px 16px; }
+.stat b { display:block; font-size:1.7rem; font-weight:650; line-height:1.1; }
+.stat span { color:var(--muted); font-size:13px; }
+.pill { display:inline-block; padding:2px 9px; border-radius:11px;
+  font-size:12px; border:1px solid var(--line); color:var(--muted);
+  white-space:nowrap; }
+.pill.ok { color:var(--good); border-color:currentColor; }
+.pill.bad { color:var(--bad); border-color:currentColor; }
+.pill.warn { color:var(--warn); border-color:currentColor; }
+form.inline { display:inline; }
+label { display:block; margin:14px 0 4px; font-weight:600; font-size:13px; }
+label .hint { display:block; font-weight:400; color:var(--muted);
+  font-size:12px; margin-top:2px; }
+input[type=text], input[type=url], input[type=number], input[type=password],
+select, textarea { width:100%; padding:8px 10px; border:1px solid var(--line);
+  border-radius:7px; background:var(--bg); color:var(--ink); font:inherit;
+  font-size:14px; }
+textarea { min-height:70px; }
+.check { display:flex; align-items:center; gap:8px; margin:10px 0;
+  font-size:14px; }
+.check input { width:auto; margin:0; }
+.check label { margin:0; font-weight:500; }
+button, .btn { font:inherit; font-size:14px; padding:8px 14px; border-radius:7px;
+  border:1px solid var(--line); background:var(--panel); color:var(--ink);
+  cursor:pointer; text-decoration:none; display:inline-block; }
+button.primary { background:var(--accent); border-color:var(--accent);
+  color:#fff; font-weight:600; }
+button.danger { color:var(--bad); }
+button.link { border:none; background:none; padding:2px 4px;
+  color:var(--accent); text-decoration:underline; }
+.row { display:flex; gap:10px; flex-wrap:wrap; align-items:flex-end; }
+.row > * { flex:1 1 200px; }
+.row .narrow { flex:0 0 130px; }
+.flash, .err { padding:11px 14px; border-radius:8px; margin-bottom:16px;
+  font-size:14px; border:1px solid; }
+.flash { border-color:var(--good); color:var(--good); }
+.err { border-color:var(--bad); color:var(--bad); }
+.muted { color:var(--muted); }
+.small { font-size:13px; }
+code { background:var(--bg); border:1px solid var(--line); padding:1px 5px;
+  border-radius:4px; font-size:13px; }
+.empty { color:var(--muted); padding:20px; text-align:center; }
+.actions { display:flex; gap:6px; justify-content:flex-end; }
+details summary { cursor:pointer; color:var(--muted); font-size:14px;
+  padding:6px 0; }
+</style>
+</head>
+<body>
+<header><nav>
+  <span class="brand">RSSOPDS</span>
+  {% set p = request.url.path %}
+  <a href="/" class="{{ 'on' if p == '/' }}">Dashboard</a>
+  <a href="/feeds" class="{{ 'on' if p.startswith('/feeds') }}">Feeds</a>
+  <a href="/threads" class="{{ 'on' if p.startswith('/threads') }}">Threads</a>
+  <a href="/categories" class="{{ 'on' if p.startswith('/categories') }}">Categories</a>
+  <a href="/articles" class="{{ 'on' if p.startswith('/articles') }}">Articles</a>
+  <a href="/editions" class="{{ 'on' if p.startswith('/editions') }}">Editions</a>
+  <a href="/jobs" class="{{ 'on' if p.startswith('/jobs') }}">Jobs</a>
+  <a href="/opds-log" class="{{ 'on' if p.startswith('/opds-log') }}">OPDS log</a>
+  <a href="/settings" class="{{ 'on' if p.startswith('/settings') }}">Settings</a>
+  <a href="/opds" style="margin-left:auto">OPDS&nbsp;↗</a>
+</nav></header>
+<main>
+{% if flash %}<div class="flash">{{ flash }}</div>{% endif %}
+{% if error %}<div class="err">{{ error }}</div>{% endif %}
+{% block body %}{% endblock %}
+</main>
+</body>
+</html>

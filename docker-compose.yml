@@ -1,0 +1,29 @@
+services:
+  rssopds:
+    build: .
+    container_name: rssopds
+    restart: unless-stopped
+    ports:
+      - "8000:8000"
+    volumes:
+      - ./data:/data
+
+    # Credentials and anything else secret live here, not in this file.
+    # Copy .env.example to .env and edit it. Optional: the app starts without
+    # it, with authentication switched off.
+    env_file:
+      - path: .env
+        required: false
+
+    # Only non-secret defaults belong below. Anything named here OVERRIDES
+    # .env, so never repeat a credential variable in this block -- an empty
+    # value would silently switch authentication back off.
+    environment:
+      RSSOPDS_DATA_DIR: /data
+      RSSOPDS_LOG_LEVEL: INFO
+
+    # Ollama runs on the host rather than in this container. On Linux hosts
+    # host.docker.internal needs this mapping; Docker Desktop provides it
+    # already. Point RSSOPDS's "Ollama base URL" setting at the same address.
+    extra_hosts:
+      - "host.docker.internal:host-gateway"

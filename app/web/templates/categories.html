@@ -1,0 +1,66 @@
+{% extends "base.html" %}
+{% block body %}
+<h1>Categories</h1>
+<p class="sub">One EPUB is built per category. A category with nothing unread
+  disappears from the OPDS catalogue until it has something again.</p>
+
+<div class="card">
+  <h2 style="margin-top:0">Add a category</h2>
+  <form method="post" action="/categories/save" enctype="multipart/form-data">
+    <div class="row">
+      <div><label>Name<input type="text" name="name" required></label></div>
+      <div class="narrow"><label>Sort order
+        <input type="number" name="sort_order" value="100"></label></div>
+      <div><label>Cover image
+        <span class="hint">Optional — one is generated if you skip this.</span>
+        <input type="file" name="cover" accept="image/*"></label></div>
+    </div>
+    <p><button class="primary" type="submit">Add</button></p>
+  </form>
+</div>
+
+<div class="card">
+{% if categories %}
+<table>
+  <tr><th>Cover</th><th>Name</th><th>Feeds</th><th>Unread</th><th>Order</th>
+      <th></th></tr>
+  {% for category in categories %}
+  <tr>
+    <td><img src="/categories/{{ category.id }}/cover.jpg" alt=""
+             style="width:44px;height:66px;object-fit:cover;border-radius:3px;
+                    border:1px solid var(--line)"></td>
+    <td>
+      <form class="inline" method="post" action="/categories/save"
+            enctype="multipart/form-data">
+        <input type="hidden" name="category_id" value="{{ category.id }}">
+        <input type="text" name="name" value="{{ category.name }}"
+               style="width:180px">
+        <input type="hidden" name="sort_order" value="{{ category.sort_order }}">
+        <input type="file" name="cover" accept="image/*" style="width:190px">
+        <button type="submit">Save</button>
+      </form>
+    </td>
+    <td class="muted">{{ feed_counts.get(category.id, 0) }}</td>
+    <td class="muted">{{ unread.get(category.id, 0) }}</td>
+    <td class="muted">{{ category.sort_order }}</td>
+    <td class="actions">
+      {% if category.cover_file %}
+      <form class="inline" method="post"
+            action="/categories/{{ category.id }}/clear-cover">
+        <button type="submit">Use generated cover</button>
+      </form>
+      {% endif %}
+      <form class="inline" method="post"
+            action="/categories/{{ category.id }}/delete"
+            onsubmit="return confirm('Delete {{ category.name }}?')">
+        <button class="danger" type="submit">Delete</button>
+      </form>
+    </td>
+  </tr>
+  {% endfor %}
+</table>
+{% else %}
+<p class="empty">No categories yet.</p>
+{% endif %}
+</div>
+{% endblock %}

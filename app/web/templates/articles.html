@@ -1,0 +1,72 @@
+{% extends "base.html" %}
+{% block body %}
+<h1>Articles</h1>
+<p class="sub">
+  {% for option in ['', 'pending', 'ready', 'published', 'delivered',
+                    'failed', 'skipped'] %}
+    <a href="/articles{{ '?state=' + option if option }}"
+       class="pill {{ 'ok' if state == option }}">{{ option or 'all' }}</a>
+  {% endfor %}
+</p>
+
+<div class="card">
+{% if articles %}
+<table>
+  <tr><th>Title</th><th>Feed</th><th>Published</th><th>Words</th>
+      <th>Cleaned by</th><th>State</th><th></th></tr>
+  {% for article in articles %}
+  {% set held = article.thread_open_until and article.thread_open_until.replace(tzinfo=now.tzinfo) > now %}
+  <tr>
+    <td>
+      <a href="/articles/{{ article.id }}">{{ article.title or '(untitled)' }}</a>
+      {% if article.part_count > 1 %}
+        <span class="pill">{{ article.part_count }}-post thread</span>
+      {% endif %}
+      {% if article.error %}
+        <div class="small" style="color:var(--bad)">{{ article.error }}</div>
+      {% endif %}
+    </td>
+    <td class="muted small">{{ article.feed.title if article.feed else '—' }}</td>
+    <td class="muted small">{{ article.published_at|localtime }}</td>
+    <td class="muted">{{ article.word_count }}</td>
+    <td class="muted small">{{ article.cleaned_by or '—' }}</td>
+    <td>
+      {% if held %}<span class="pill warn"
+        title="Held until {{ article.thread_open_until|localtime }}">thread open</span>
+      {% elif article.state.value == 'failed' %}<span class="pill bad">failed</span>
+      {% elif article.state.value == 'delivered' %}<span class="pill ok">read</span>
+      {% else %}<span class="pill">{{ article.state.value }}</span>{% endif %}
+    </td>
+    <td class="actions">
+      {% if held %}
+      <form class="inline" method="post"
+            action="/articles/{{ article.id }}/release-thread">
+        <button type="submit" title="Publish without waiting out the hold">
+          Release</button>
+      </form>
+      {% endif %}
+      {% if article.state.value == 'delivered' %}
+      <form class="inline" method="post" action="/articles/{{ article.id }}/state">
+        <input type="hidden" name="state" value="ready">
+        <button type="submit">Unread</button>
+      </form>
+      {% elif article.state.value != 'skipped' %}
+      <form class="inline" method="post" action="/articles/{{ article.id }}/state">
+        <input type="hidden" name="state" value="skipped">
+        <button type="submit">Hide</button>
+      </form>
+      {% else %}
+      <form class="inline" method="post" action="/articles/{{ article.id }}/state">
+        <input type="hidden" name="state" value="pending">
+        <button type="submit">Restore</button>
+      </form>
+      {% endif %}
+    </td>
+  </tr>
+  {% endfor %}
+</table>
+{% else %}
+<p class="empty">Nothing here.</p>
+{% endif %}
+</div>
+{% endblock %}
