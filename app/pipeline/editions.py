@@ -121,8 +121,28 @@ def ready_articles(session: Session, category_id: int, limit: int) -> list[Artic
     ).scalars())
 
 
-def _supersede(session: Session, edition: Edition) -> None:
-    """Retire an undelivered edition and return its articles to the pool."""
+def was_fully_downloaded(edition: Edition) -> bool:
+    return any(d.complete for d in edition.deliveries)
+
+
+def _supersede(session: Session, edition: Edition) -> bool:
+    """Retire an undelivered edition and return its articles to the pool.
+
+    An edition the reader has *already* fully downloaded is confirmed instead
+    of retired. Superseding it would send its articles back to the pool and
+    they would turn up again, unread, in the next book -- which is exactly
+    what happened to four editions before this check existed. It can confirm a
+    download slightly before the grace period is up, but re-serving something
+    already on the device is the worse outcome.
+
+    Returns True when the edition was actually superseded.
+    """
+    if was_fully_downloaded(edition):
+        log.info("edition %s was fully downloaded; confirming instead of "
+                 "superseding it", edition.id)
+        mark_delivered(session, edition)
+        return False
+
     for link in edition.articles:
         if link.article and link.article.state == ArticleState.published:
             link.article.state = ArticleState.ready
@@ -130,6 +150,7 @@ def _supersede(session: Session, edition: Edition) -> None:
     if edition.epub_file:
         (config.epub_dir / edition.epub_file).unlink(missing_ok=True)
         edition.epub_file = None
+    return True
 
 
 def build_category(session: Session, category: Category) -> Edition | None:
@@ -215,14 +236,17 @@ def supersede_available(session: Session) -> int:
     already on disk still contain the old content, and nothing else would ever
     rebuild them. Articles return to `ready`, so nothing is lost or re-read.
     """
+    # Confirm anything already downloaded first, so a pending delivery is not
+    # swept away by a rebuild the reader had nothing to do with.
+    confirm_due_deliveries(session)
+
     stale = session.execute(
         select(Edition).where(Edition.state == EditionState.available)
     ).scalars().all()
-    for edition in stale:
-        _supersede(session, edition)
-    if stale:
-        log.info("superseded %d undelivered edition(s) for rebuild", len(stale))
-    return len(stale)
+    retired = sum(1 for edition in stale if _supersede(session, edition))
+    if retired:
+        log.info("superseded %d undelivered edition(s) for rebuild", retired)
+    return retired
 
 
 def build_all(session: Session) -> int:

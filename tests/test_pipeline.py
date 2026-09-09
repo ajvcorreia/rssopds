@@ -12,8 +12,8 @@ from app.config import config  # noqa: E402
 from app.db import init_db, session_scope  # noqa: E402
 from app.main import app  # noqa: E402
 from app.models import (  # noqa: E402
-    Article, ArticleState, Category, Edition, EditionState, Feed, FeedItem,
-    JobRun, SourceKind, ThreadMode,
+    Article, ArticleState, Category, Delivery, Edition, EditionArticle,
+    EditionState, Feed, FeedItem, JobRun, SourceKind, ThreadMode,
 )
 from app.pipeline import assemble, editions, process  # noqa: E402
 from app.settings_store import put  # noqa: E402
@@ -726,6 +726,106 @@ try:
            any("RSSOSPD_WEB_USER" in m for m in _catch.messages))
 finally:
     del _os.environ["RSSOSPD_WEB_USER"]
+
+print("\n[28] a downloaded edition is never superseded out from under the reader")
+# Four real editions were superseded despite a completed download: their
+# articles went back to the pool and reappeared, unread, in the next book.
+# Two routes caused it -- the confirm delay not having elapsed when a rebuild
+# ran, and supersede_available() sweeping unconditionally on startup.
+with session_scope() as s:
+    put(s, "delivery_confirm_delay_s", 3600)   # deliberately NOT yet due
+    cat3 = Category(name="Race", slug="race")
+    s.add(cat3)
+    s.flush()
+
+    def _edition(number, articles, downloaded):
+        ed = Edition(category_id=cat3.id, number=number, title=f"Race {number}",
+                     state=EditionState.available, epub_file=f"race-{number}.epub",
+                     size_bytes=10, article_count=len(articles))
+        (config.epub_dir / f"race-{number}.epub").write_bytes(b"x" * 10)
+        s.add(ed)
+        s.flush()
+        for pos, art in enumerate(articles):
+            art.state = ArticleState.published
+            s.add(EditionArticle(edition_id=ed.id, article_id=art.id,
+                                 position=pos))
+        if downloaded:
+            s.add(Delivery(edition_id=ed.id, complete=True, bytes_sent=10,
+                           completed_at=datetime.now(timezone.utc)))
+        return ed
+
+    read_arts = []
+    for n in range(2):
+        a = Article(feed_id=feed_id, category_id=cat3.id, title=f"Downloaded {n}",
+                    body_html="<p>Body.</p>", word_count=2,
+                    state=ArticleState.ready)
+        s.add(a)
+        read_arts.append(a)
+    unread_arts = []
+    for n in range(2):
+        a = Article(feed_id=feed_id, category_id=cat3.id, title=f"Untouched {n}",
+                    body_html="<p>Body.</p>", word_count=2,
+                    state=ArticleState.ready)
+        s.add(a)
+        unread_arts.append(a)
+    s.flush()
+    downloaded_id = _edition(1, read_arts, downloaded=True).id
+    untouched_id = _edition(2, unread_arts, downloaded=False).id
+    read_ids = [a.id for a in read_arts]
+    unread_ids = [a.id for a in unread_arts]
+
+from app.pipeline.editions import _supersede, was_fully_downloaded  # noqa: E402
+
+with session_scope() as s:
+    check("the downloaded edition is recognised as such",
+          was_fully_downloaded(s.get(Edition, downloaded_id)), True)
+    retired = _supersede(s, s.get(Edition, downloaded_id))
+    check("it is NOT superseded", retired, False)
+
+with session_scope() as s:
+    check("it became delivered instead",
+          s.get(Edition, downloaded_id).state, EditionState.delivered)
+    states = [s.get(Article, i).state for i in read_ids]
+    check("its articles are marked read, not returned to the pool",
+          states, [ArticleState.delivered, ArticleState.delivered])
+
+with session_scope() as s:
+    retired = _supersede(s, s.get(Edition, untouched_id))
+    check("an untouched edition IS still superseded", retired, True)
+
+with session_scope() as s:
+    check("untouched edition retired",
+          s.get(Edition, untouched_id).state, EditionState.superseded)
+    states = [s.get(Article, i).state for i in unread_ids]
+    check("its articles go back to the pool",
+          states, [ArticleState.ready, ArticleState.ready])
+
+print("\n[29] the startup sweep also spares a downloaded edition")
+with session_scope() as s:
+    ed = s.get(Edition, downloaded_id)
+    ed.state = EditionState.available          # pretend it is current again
+    ed.epub_file = "race-1.epub"
+    for i in read_ids:
+        s.get(Article, i).state = ArticleState.published
+with session_scope() as s:
+    # Other categories may also have current editions; count only the ones
+    # that genuinely have nothing downloaded, which is what should be retired.
+    available = s.query(Edition).filter(
+        Edition.state == EditionState.available).all()
+    expected = sum(1 for e in available if not editions.was_fully_downloaded(e))
+    ids_spared = [e.id for e in available if editions.was_fully_downloaded(e)]
+with session_scope() as s:
+    swept = editions.supersede_available(s)
+check("the sweep retired exactly the undownloaded editions", swept, expected)
+truthy("and at least one edition was spared", ids_spared)
+
+with session_scope() as s:
+    check("the downloaded edition was spared",
+          s.get(Edition, downloaded_id).state, EditionState.delivered)
+    check("its articles stayed read",
+          [s.get(Article, i).state for i in read_ids],
+          [ArticleState.delivered, ArticleState.delivered])
+    put(s, "delivery_confirm_delay_s", 0)
 
 print("\n" + "=" * 60)
 if FAILS:
