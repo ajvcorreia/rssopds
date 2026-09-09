@@ -280,6 +280,86 @@ def ai_clean(html: str, *, base_url: str, model: str, timeout: int,
     return candidate, model
 
 
+# Characters a small e-ink font is unlikely to carry, mapped to something it
+# certainly does. Deliberately narrow: ordinary punctuation -- en and em
+# dashes, curly quotes, ellipses, bullets -- lives in General Punctuation
+# (U+2010-U+205F) and is NOT touched, because those render fine and are real
+# typography. Accented letters and non-Latin scripts are never touched either.
+SYMBOL_REPLACEMENTS = {
+    "←": "<-", "→": "->", "↔": "<->",
+    "↑": "^", "↓": "v",
+    "⇐": "<=", "⇒": "=>", "⇔": "<=>",
+    "➔": ">", "➙": ">", "➜": ">", "➞": ">",
+    "➡": ">", "➤": ">", "➧": ">", "➨": ">",
+    "⬅": "<", "⮕": ">",
+    "✓": "[x]", "✔": "[x]", "✗": "[ ]", "✘": "[ ]",
+    "★": "*", "☆": "*", "✶": "*", "✻": "*",
+    "●": "*", "○": "*", "■": "*", "□": "*",
+    "▶": ">", "◀": "<",
+    "❤": "<3",
+}
+
+# Blocks that are decoration rather than text. Anything in here without an
+# explicit replacement above is dropped: it would only render as an empty box.
+DECORATIVE_RANGES = (
+    (0x2190, 0x21FF),    # arrows
+    (0x2500, 0x257F),    # box drawing
+    (0x2580, 0x259F),    # block elements
+    (0x25A0, 0x25FF),    # geometric shapes
+    (0x2600, 0x26FF),    # miscellaneous symbols
+    (0x2700, 0x27BF),    # dingbats -- U+27A7 lives here
+    (0x2B00, 0x2BFF),    # miscellaneous symbols and arrows
+    (0xFE00, 0xFE0F),    # variation selectors
+    (0x1F000, 0x1FAFF),  # emoji, cards, dominoes
+)
+
+VERBATIM_TAGS = ("pre", "code")
+
+
+def _is_decorative(ch: str) -> bool:
+    cp = ord(ch)
+    return any(low <= cp <= high for low, high in DECORATIVE_RANGES)
+
+
+def simplify_symbols_text(text: str) -> str:
+    """Replace decorative symbols in a plain string."""
+    out = []
+    for ch in text:
+        if ch in SYMBOL_REPLACEMENTS:
+            out.append(SYMBOL_REPLACEMENTS[ch])
+        elif ch == "‍":          # zero-width joiner, glues emoji together
+            continue
+        elif _is_decorative(ch):
+            out.append(" ")
+        else:
+            out.append(ch)
+    return re.sub(r"[ 	]{2,}", " ", "".join(out))
+
+
+def simplify_symbols(html: str) -> str:
+    """Same, over an HTML fragment, leaving pre/code blocks alone.
+
+    A reader whose font lacks a glyph draws an empty box, so "sorted by date
+    ➧➧➧" arrives as three boxes. Mapping the handful of
+    decorative characters to ASCII is far more useful than the boxes, and
+    dropping the rest beats showing them.
+    """
+    if not html:
+        return ""
+    soup = BeautifulSoup(html, "lxml")
+    for node in list(soup.find_all(string=True)):
+        if not isinstance(node, NavigableString):
+            continue
+        parent = node.parent
+        if isinstance(parent, Tag) and parent.name in VERBATIM_TAGS:
+            continue
+        replaced = simplify_symbols_text(str(node))
+        if replaced != str(node):
+            node.replace_with(replaced)
+    body = soup.body or soup
+    return "".join(str(c) for c in body.children).strip()
+
+
 def strip_images(html: str) -> str:
     """Drop every image, for feeds configured text-only."""
     if not html:

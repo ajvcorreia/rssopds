@@ -80,6 +80,14 @@ DEFAULTS: dict[str, tuple[Any, str, str, str, str]] = {
                         "Sent when fetching feeds and articles."),
     "fetch_timeout_s": (30, "int", "Scheduling", "Fetch timeout (s)", ""),
 
+    "simplify_symbols": (1, "int", "Cleaning", "Replace decorative symbols",
+                        "Small e-ink fonts have no glyph for dingbats, arrows "
+                        "or emoji and draw an empty box instead. This maps the "
+                        "common ones to ASCII (➧ becomes >) and drops the "
+                        "rest. Ordinary punctuation -- dashes, curly quotes, "
+                        "ellipses, bullets -- and all accented and non-Latin "
+                        "text are left untouched."),
+
     "images_enabled": (1, "int", "Images", "Include images at all",
                        "Master switch, overriding the per-feed setting. Turn "
                        "it off for a reader that cannot display images: "

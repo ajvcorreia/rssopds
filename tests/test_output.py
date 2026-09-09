@@ -472,6 +472,47 @@ truthy("real image kept", "real.jpg" in out)
 truthy("alt kept", 'alt="A photo"' in out)
 truthy("empty p dropped", "<p></p>" not in out)
 
+print("\n[C2] decorative symbols are simplified, real typography is not")
+# A FitGirl digest ended "sorted by date ➧➧➧" and the reader drew three empty
+# boxes: U+27A7 is a dingbat, and small e-ink fonts carry no glyph for it.
+
+# What must be replaced or dropped.
+check("dingbat arrow becomes ascii",
+      clean.simplify_symbols_text("sorted by date ➧➧➧"),
+      "sorted by date >>>")
+check("plain arrows", clean.simplify_symbols_text("a → b ← c"),
+      "a -> b <- c")
+check("check marks", clean.simplify_symbols_text("✓ done"), "[x] done")
+check("stars", clean.simplify_symbols_text("★★"), "**")
+check("an unmapped dingbat is dropped, not left as a box",
+      clean.simplify_symbols_text("x ❖ y"), "x y")
+check("emoji are dropped",
+      clean.simplify_symbols_text("nice \U0001F600 one"), "nice one")
+
+# What must survive untouched -- this is the half that matters most.
+for label, sample in [
+    ("en dash", "Cooking Simulator – v7.5.0"),
+    ("em dash", "a — b"),
+    ("curly quotes", "‘single’ and “double”"),
+    ("ellipsis", "wait…"),
+    ("bullet", "• item"),
+    ("accents", "sença fácil, Noël Godin"),
+    ("cyrillic", "Привет"),
+    ("cjk", "日本語"),
+    ("currency", "£26m and €5"),
+]:
+    check(f"{label} untouched", clean.simplify_symbols_text(sample), sample)
+
+# Over HTML, leaving verbatim blocks alone.
+_html = "<p>date ➧➧➧</p><pre>arrow ➧ in code</pre>"
+_out = clean.simplify_symbols(_html)
+# ">" is serialised as &gt;, which is correct HTML, so assert on the rendered
+# text rather than the raw markup.
+truthy("html body simplified", "date >>>" in clean.text_of(_out))
+truthy("escaped correctly in the markup", "&gt;&gt;&gt;" in _out)
+truthy("pre block left verbatim", "➧" in _out)
+truthy("markup preserved", "<pre>" in _out and "<p>" in _out)
+
 print("\n[D] the AI retention guard")
 long_html = "<p>" + " ".join(f"Sentence number {i}." for i in range(200)) + "</p>"
 

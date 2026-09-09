@@ -64,6 +64,13 @@ def process_article(session: Session, article: Article, cfg: dict) -> None:
     else:
         body, cleaned_by = clean.sanitize(body), "rules"
 
+    if cfg["simplify_symbols"]:
+        # After cleaning, before images: the substitution is textual and must
+        # not disturb the img tags the next step rewrites.
+        body = clean.simplify_symbols(body)
+        if article.title:
+            article.title = clean.simplify_symbols_text(article.title).strip()
+
     hero: str | None = None
     # The global switch wins: a reader that cannot show images should not make
     # the server fetch and rescale them either.
