@@ -15,13 +15,13 @@
   <label class="{{ backend_class }}">{{ field.label }}
     {% if field.help %}<span class="hint">{{ field.help }}</span>{% endif %}
     {% if field.kind == 'int' %}
-      <input type="number" step="1" name="{{ field.key }}"
+      <input type="number" step="1" name="{{ field.key }}" id="field-{{ field.key }}"
              value="{{ values[field.key] }}">
     {% elif field.kind == 'float' %}
-      <input type="number" step="0.01" name="{{ field.key }}"
+      <input type="number" step="0.01" name="{{ field.key }}" id="field-{{ field.key }}"
              value="{{ values[field.key] }}">
     {% elif field.kind == 'choice' %}
-      <select name="{{ field.key }}"
+      <select name="{{ field.key }}" id="field-{{ field.key }}"
               {% if field.key == 'ai_backend' %}
               onchange="rssopdsToggleAiBackend(this.value)"
               {% endif %}>
@@ -40,10 +40,11 @@
         Reset to default prompt</button>
       {% endif %}
     {% elif field.key == 'openai_api_key' %}
-      <input type="password" name="{{ field.key }}" value="{{ values[field.key] }}"
-             autocomplete="off">
+      <input type="password" name="{{ field.key }}" id="field-{{ field.key }}"
+             value="{{ values[field.key] }}" autocomplete="off">
     {% else %}
-      <input type="text" name="{{ field.key }}" value="{{ values[field.key] }}">
+      <input type="text" name="{{ field.key }}" id="field-{{ field.key }}"
+             value="{{ values[field.key] }}">
     {% endif %}
     {% if field.key in ('ollama_model', 'openai_model') %}
     {% set backend = 'ollama' if field.key == 'ollama_model' else 'openai' %}
@@ -81,9 +82,9 @@ function rssopdsToggleAiBackend(backend) {
 }
 
 async function rssopdsFetchModels(backend) {
-  var urlField = document.querySelector(
-    '[name=' + (backend === 'ollama' ? 'ollama_url' : 'openai_base_url') + ']');
-  var keyField = document.querySelector('[name=openai_api_key]');
+  var urlField = document.getElementById(
+    'field-' + (backend === 'ollama' ? 'ollama_url' : 'openai_base_url'));
+  var keyField = document.getElementById('field-openai_api_key');
   var status = document.getElementById(backend + '-model-status');
   var select = document.getElementById(backend + '-model-select');
   var modelField = document.getElementById(
@@ -118,10 +119,10 @@ async function rssopdsFetchModels(backend) {
 }
 
 async function rssopdsTestModel(backend) {
-  var urlField = document.querySelector(
-    '[name=' + (backend === 'ollama' ? 'ollama_url' : 'openai_base_url') + ']');
-  var keyField = document.querySelector('[name=openai_api_key]');
-  var timeoutField = document.querySelector('[name=ollama_timeout_s]');
+  var urlField = document.getElementById(
+    'field-' + (backend === 'ollama' ? 'ollama_url' : 'openai_base_url'));
+  var keyField = document.getElementById('field-openai_api_key');
+  var timeoutField = document.getElementById('field-ollama_timeout_s');
   var modelField = document.getElementById(
     'field-' + (backend === 'ollama' ? 'ollama_model' : 'openai_model'));
   var status = document.getElementById(backend + '-test-status');
@@ -144,7 +145,7 @@ async function rssopdsTestModel(backend) {
   }
 }
 
-rssopdsToggleAiBackend(document.querySelector('[name=ai_backend]').value);
+rssopdsToggleAiBackend(document.getElementById('field-ai_backend').value);
 </script>
 
 <div class="card">

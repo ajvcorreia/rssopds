@@ -1032,6 +1032,16 @@ truthy("the cleanup prompt textarea is on the page",
 truthy("a reset-to-default button is on the page",
        "Reset to default prompt" in r.text)
 
+# Every field the page's own JS looks up by id must actually carry that id --
+# a plain <input> once lost its id="field-..." (only the textarea kept it),
+# which made "Fetch available models" and "Test model" throw
+# "Cannot read properties of null" instead of doing anything.
+for settings_key in ("ollama_url", "ollama_model", "openai_base_url",
+                     "openai_model", "openai_api_key", "ollama_timeout_s",
+                     "ai_backend"):
+    truthy(f"field-{settings_key} id is present for the page's JS to find",
+          f'id="field-{settings_key}"' in r.text)
+
 with session_scope() as s:
     prompt_before = sget(s, "ai_clean_prompt")
 r = client.post("/settings", data={"ai_clean_prompt": "no placeholder here"},
