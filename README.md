@@ -253,9 +253,14 @@ download URL, and the `Content-Disposition` filename all include it, e.g.
 issue-numbered name) still works too, so a catalogue entry already saved on a
 device keeps functioning.
 
-The issue number never repeats for a category, including across superseded
-and deleted editions. `edition_title_format` must contain `{n}`, `{time}` or
-`{datetime}`; saving one without any of them warns you on the Settings page.
+The issue number only advances once an edition has actually been delivered —
+by a real download completing, or an admin "Mark read". A rebuild that
+replaces an edition nobody has downloaded yet reuses its number instead of
+incrementing, so a reader that has not synced in a while does not see the
+number climb for content it was never offered. Once a number has been
+delivered it is never reused again. `edition_title_format` must contain
+`{n}`, `{time}` or `{datetime}`; saving one without any of them warns you on
+the Settings page.
 
 ## Naming and branding
 

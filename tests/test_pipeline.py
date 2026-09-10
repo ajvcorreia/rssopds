@@ -350,13 +350,31 @@ from app.models import Setting  # noqa: E402
 from app.settings_store import seed_defaults  # noqa: E402
 
 with session_scope() as s:
-    # Simulate a database made before the column existed: every row default.
+    # Simulate a database made before the column existed: every row default,
+    # and the migration has genuinely never run against it (no marker yet).
     s.query(Edition).update({Edition.number: 1})
+    marker = s.get(Setting, "_schema_edition_numbers_backfilled")
+    if marker is not None:
+        s.delete(marker)
 with session_scope() as s:
     _backfill_edition_numbers(s)
 with session_scope() as s:
     nums = [e.number for e in s.query(Edition).order_by(Edition.id).all()]
     check("old editions renumbered sequentially", nums, list(range(1, len(nums) + 1)))
+    truthy("the migration marker is set afterwards",
+           s.get(Setting, "_schema_edition_numbers_backfilled") is not None)
+
+# It must not run a second time, even if numbers look "non-distinct" again --
+# that is now a normal, intentional state (a rebuild reusing a number for an
+# edition nobody has downloaded), not a sign of an unmigrated database.
+with session_scope() as s:
+    s.query(Edition).update({Edition.number: 1})
+with session_scope() as s:
+    _backfill_edition_numbers(s)
+with session_scope() as s:
+    nums_after = [e.number for e in s.query(Edition).order_by(Edition.id).all()]
+    check("guarded: a marked database is never renumbered again",
+          nums_after, [1] * len(nums_after))
 
 with session_scope() as s:
     # A stored value that is just the old default gets moved forward...
@@ -879,6 +897,129 @@ truthy("the column shows device names, not just repeated IPs",
 truthy("only three are listed inline, the rest collapsed",
        "+1 more" in r.text)
 truthy("the full agent is available on hover", "10.0.0.5" in r.text)
+
+print("\n[31] the issue number only advances once an edition is delivered")
+with session_scope() as s:
+    put(s, "delivery_confirm_delay_s", 0)
+    cat5 = Category(name="Numbering", slug="numbering")
+    s.add(cat5)
+    s.flush()
+    num_feed = Feed(title="Numbering feed", kind=SourceKind.rss, url="http://x",
+                    category_id=cat5.id, clean_with_ai=False,
+                    extract_fulltext=False, include_images=False)
+    s.add(num_feed)
+    s.flush()
+    num_feed_id, num_cat_id = num_feed.id, cat5.id
+
+
+def _add_ready(title, cat_id=None, feed_id=None):
+    with session_scope() as s:
+        s.add(Article(feed_id=feed_id or num_feed_id, category_id=cat_id or num_cat_id,
+                      title=title, body_html=f"<p>{title}</p>", word_count=2,
+                      state=ArticleState.ready))
+
+
+def _current(cat_id):
+    with session_scope() as s:
+        return (s.query(Edition)
+                .filter(Edition.category_id == cat_id,
+                       Edition.state == EditionState.available)
+                .one())
+
+
+# First edition for a new category: always No. 1.
+_add_ready("N1")
+with session_scope() as s:
+    editions.build_all(s)
+first = _current(num_cat_id)
+check("first edition is number 1", first.number, 1)
+first_id = first.id
+
+# A second article arrives before anyone has downloaded it: the rebuild must
+# REUSE the number, not advance it -- this is the actual behaviour change.
+_add_ready("N2")
+with session_scope() as s:
+    editions.build_all(s)
+second = _current(num_cat_id)
+check("undelivered rebuild reuses the same number", second.number, 1)
+truthy("but it is a genuinely different edition row", second.id != first_id)
+with session_scope() as s:
+    check("the old edition was actually superseded",
+          s.get(Edition, first_id).state, EditionState.superseded)
+
+# It can keep reusing the number across several undelivered rebuilds in a row.
+_add_ready("N3")
+with session_scope() as s:
+    editions.build_all(s)
+check("still number 1 after a second undelivered rebuild",
+      _current(num_cat_id).number, 1)
+
+# Now the reader actually downloads it, in full, over an OPDS request.
+current = _current(num_cat_id)
+r = client.get(f"/opds/edition/{current.id}.epub")
+check("download completes", r.status_code, 200)
+from app.pipeline.editions import was_fully_downloaded  # noqa: E402
+
+with session_scope() as s:
+    truthy("delivery recorded as complete",
+           was_fully_downloaded(s.get(Edition, current.id)))
+
+# The next rebuild must now advance past 1, since that edition was delivered.
+_add_ready("N4")
+with session_scope() as s:
+    editions.build_all(s)
+check("number advances once the previous one was downloaded",
+      _current(num_cat_id).number, 2)
+with session_scope() as s:
+    check("edition 1 ended up delivered, not superseded",
+          s.get(Edition, current.id).state, EditionState.delivered)
+
+# An admin "Mark read" must count the same as a real download.
+_add_ready("N5")
+with session_scope() as s:
+    editions.build_all(s)
+check("second undelivered edition also reuses its number",
+      _current(num_cat_id).number, 2)
+with session_scope() as s:
+    editions.mark_delivered(s, s.get(Edition, _current(num_cat_id).id))
+_add_ready("N6")
+with session_scope() as s:
+    editions.build_all(s)
+check("admin mark-read advances the number too",
+      _current(num_cat_id).number, 3)
+
+with session_scope() as s:
+    put(s, "delivery_confirm_delay_s", 60)
+
+print("\n[32] the number-backfill migration does not run twice")
+from app.db import _backfill_edition_numbers  # noqa: E402
+from app.models import Setting  # noqa: E402
+
+with session_scope() as s:
+    check("the migration marker is set after init_db()",
+          s.get(Setting, "_schema_edition_numbers_backfilled") is not None, True)
+
+# Simulate exactly the state this feature now creates on purpose: two
+# editions in one category sharing a number. Without the guard, re-running
+# the old heuristic would see "not distinct" and renumber them, undoing the
+# reuse behaviour on every restart.
+with session_scope() as s:
+    rows = (s.query(Edition)
+            .filter(Edition.category_id == num_cat_id)
+            .order_by(Edition.id).all())
+    before = [(e.id, e.number) for e in rows]
+    truthy("fixture actually has a repeated number to protect",
+           len({n for _i, n in before}) < len(before))
+
+with session_scope() as s:
+    _backfill_edition_numbers(s)
+
+with session_scope() as s:
+    after = [(e.id, e.number) for e in
+            s.query(Edition).filter(Edition.category_id == num_cat_id)
+            .order_by(Edition.id).all()]
+    check("a second migration run leaves intentional duplicates untouched",
+          after, before)
 
 print("\n" + "=" * 60)
 if FAILS:

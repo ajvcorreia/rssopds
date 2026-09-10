@@ -72,14 +72,28 @@ def _add_missing_columns() -> None:
 
 
 def _backfill_edition_numbers(session) -> None:
-    """Give pre-existing editions sequential issue numbers.
+    """One-time: give pre-existing editions sequential issue numbers.
 
-    Rows that predate the column all carry the same default, so without this
-    the next edition would be numbered 2 no matter how many came before it.
+    Rows that predate the `number` column all carry the same default, so
+    without this the next edition would be numbered 2 no matter how many came
+    before it.
+
+    Guarded by a marker row rather than re-checked on every boot. The
+    original heuristic ("are all numbers already distinct?") stopped being
+    safe once build_category started deliberately reusing a number for an
+    edition that was superseded without ever being downloaded -- two editions
+    legitimately sharing a number is normal now, and re-running that check
+    would read a healthy database as "not yet migrated" and renumber
+    everything sequentially again, silently undoing the reuse on every
+    restart.
     """
-    from sqlalchemy import func, select as sa_select
+    from sqlalchemy import select as sa_select
 
-    from .models import Edition
+    from .models import Edition, Setting
+
+    marker_key = "_schema_edition_numbers_backfilled"
+    if session.get(Setting, marker_key) is not None:
+        return
 
     category_ids = [
         c for (c,) in session.execute(sa_select(Edition.category_id).distinct())
@@ -94,6 +108,8 @@ def _backfill_edition_numbers(session) -> None:
         for index, edition in enumerate(rows, start=1):
             edition.number = index
         log.info("renumbered %d editions in category %s", len(rows), category_id)
+
+    session.add(Setting(key=marker_key, value="1"))
 
 
 LEGACY_DB_NAME = "rssospd.db"  # the project was briefly misspelled

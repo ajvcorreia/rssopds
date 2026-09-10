@@ -170,8 +170,19 @@ def build_category(session: Session, category: Category) -> Edition | None:
         # Nothing new worth reissuing for; leave the current edition alone.
         return None
 
+    # An edition that gets genuinely superseded (never downloaded) hands its
+    # number to the edition replacing it, rather than the number advancing on
+    # every rebuild. A reader that has not synced in a while should not see
+    # the issue number climb for content it was never offered; the number is
+    # meant to count what the reader has actually received. _supersede()
+    # returns False instead when the edition turns out to have been fully
+    # downloaded -- it confirms that one as delivered rather than retiring
+    # it, and in that case the number still advances normally, same as if it
+    # had gone through the ordinary delivery-confirm path.
+    reuse_number = None
     for old in existing:
-        _supersede(session, old)
+        if _supersede(session, old):
+            reuse_number = old.number
     session.flush()
 
     # Superseding returned the old edition's articles to `ready`, so re-query
@@ -181,11 +192,17 @@ def build_category(session: Session, category: Category) -> Edition | None:
         return None
 
     when = timeutil.now()
-    # Issue number continues across superseded and delivered editions, so it
-    # never repeats for a category even after a rebuild.
-    number = (session.execute(
-        select(func.max(Edition.number)).where(Edition.category_id == category.id)
-    ).scalar() or 0) + 1
+    if reuse_number is not None:
+        number = reuse_number
+    else:
+        # Nothing to reuse: either this category's first edition, or the
+        # previous one was already delivered by the time this build ran.
+        # Numbers are never reused once an edition under them has been
+        # delivered, whether by a real download or an admin "Mark read".
+        number = (session.execute(
+            select(func.max(Edition.number))
+            .where(Edition.category_id == category.id)
+        ).scalar() or 0) + 1
 
     title = format_title(setting(session, "edition_title_format"),
                          category=category.name, when=when,
@@ -208,7 +225,13 @@ def build_category(session: Session, category: Category) -> Edition | None:
     session.add(edition)
     session.flush()
 
-    filename = f"{category.slug}-no{number:03d}-{when:%Y%m%d-%H%M}.epub"
+    # The row id is what actually guarantees this filename is unique -- the
+    # issue number can now repeat (a rebuild reuses one that was never
+    # downloaded), and two such rebuilds of the same category landing in the
+    # same clock-minute would otherwise compute the identical filename and
+    # overwrite each other's file on disk, leaving the other edition's row
+    # pointing at a file that no longer exists.
+    filename = f"{category.slug}-no{number:03d}-{when:%Y%m%d-%H%M}-{edition.id}.epub"
     out_path = config.epub_dir / filename
 
     epub.build(title=title, author=author, articles=articles, cover_path=cover,

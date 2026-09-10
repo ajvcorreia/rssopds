@@ -56,9 +56,14 @@ DEFAULTS: dict[str, tuple[Any, str, str, str, str]] = {
                              "Placeholders: {category} {n} {date} {time} "
                              "{datetime} {count}. Ereaders name the downloaded "
                              "file after this title, so it must include {n}, "
-                             "{time} or {datetime} -- otherwise two editions "
-                             "built on the same day get the same filename and "
-                             "the second overwrites the first on the device."),
+                             "{time} or {datetime} -- otherwise two delivered "
+                             "editions can get the same filename and the "
+                             "second overwrites the first on the device. {n} "
+                             "only advances once an edition has actually been "
+                             "downloaded, so two rebuilds nobody has synced "
+                             "yet can briefly share a title -- only the "
+                             "current one is ever reachable, so that is not "
+                             "a real collision."),
     "keep_delivered_editions": (5, "int", "Editions",
                                 "Delivered EPUBs to keep",
                                 "Older delivered files are deleted from disk."),
