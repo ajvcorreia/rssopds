@@ -89,6 +89,21 @@ code { background:var(--bg); border:1px solid var(--line); padding:1px 5px;
 .actions { display:flex; gap:6px; justify-content:flex-end; }
 details summary { cursor:pointer; color:var(--muted); font-size:14px;
   padding:6px 0; }
+
+/* Downloads column. One line per client, never taller than the other cells:
+   an edition can have several delivery rows, and stacking them made that row
+   four lines high while every neighbour was one. */
+td.dl { width:1%; white-space:nowrap; }
+.dl-list { list-style:none; margin:0; padding:0; font-size:12px; }
+.dl-list li { display:flex; gap:8px; justify-content:space-between;
+  align-items:baseline; line-height:1.5; }
+.dl-list .dev { color:var(--muted); overflow:hidden; text-overflow:ellipsis;
+  max-width:12em; }
+.dl-list .pct { font-variant-numeric:tabular-nums; text-align:right;
+  min-width:3.2em; }
+.dl-list .pct.done { color:var(--good); font-weight:600; }
+.dl-list .pct.part { color:var(--warn); }
+.dl-list .more { color:var(--muted); font-style:italic; cursor:help; }
 </style>
 </head>
 <body>

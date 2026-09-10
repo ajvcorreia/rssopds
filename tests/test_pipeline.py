@@ -827,6 +827,59 @@ with session_scope() as s:
           [ArticleState.delivered, ArticleState.delivered])
     put(s, "delivery_confirm_delay_s", 0)
 
+print("\n[30] the editions page copes with several downloads per edition")
+from app.web.routes import download_summary, short_device  # noqa: E402
+
+check("version stripped from a device name",
+      short_device("CrossPoint-ESP32-1.6.0"), "CrossPoint-ESP32")
+check("slash-versioned agent", short_device("KOReader/2024.04"), "KOReader")
+check("curl", short_device("curl/8.21.0"), "curl")
+check("browser agent takes the first token",
+      short_device("Mozilla/5.0 (Windows NT 10.0; Win64)"), "Mozilla")
+check("empty agent", short_device(""), "unknown")
+
+with session_scope() as s:
+    cat4 = Category(name="Busy", slug="busy")
+    s.add(cat4)
+    s.flush()
+    ed = Edition(category_id=cat4.id, number=1, title="Busy 1",
+                 state=EditionState.delivered, epub_file="busy.epub",
+                 size_bytes=1000, article_count=1)
+    s.add(ed)
+    s.flush()
+    # Four clients, deliberately sharing an IP, as happened in practice.
+    for ua, sent, done in [("KOReader/2024.04", 1000, True),
+                           ("curl/8.21.0", 250, False),
+                           ("CrossPoint-ESP32-1.6.0", 1000, True),
+                           ("FlakyReader/0.1", 0, False)]:
+        s.add(Delivery(edition_id=ed.id, user_agent=ua, client_ip="10.0.0.5",
+                       bytes_sent=sent, complete=done))
+    busy_id = ed.id
+
+with session_scope() as s:
+    ed = s.get(Edition, busy_id)
+    summary = download_summary(s, [ed])[busy_id]
+    check("one entry per delivery", len(summary), 4)
+    check("completed transfers sort first",
+          [e["complete"] for e in summary], [True, True, False, False])
+    check("then by how far they got",
+          [e["pct"] for e in summary], [100, 100, 25, 0])
+    check("devices are distinguishable despite one IP",
+          sorted({e["device"] for e in summary}),
+          ["CrossPoint-ESP32", "FlakyReader", "KOReader", "curl"])
+    check("a zero-size edition does not divide by zero",
+          download_summary(s, [Edition(category_id=cat4.id, number=9,
+                                       title="z", size_bytes=0)]).popitem()[1],
+          [])
+
+r = client.get("/editions")
+check("editions page renders", r.status_code, 200)
+truthy("the column shows device names, not just repeated IPs",
+       "KOReader" in r.text and "CrossPoint-ESP32" in r.text)
+truthy("only three are listed inline, the rest collapsed",
+       "+1 more" in r.text)
+truthy("the full agent is available on hover", "10.0.0.5" in r.text)
+
 print("\n" + "=" * 60)
 if FAILS:
     print(f"{len(FAILS)} FAILURE(S): {FAILS}")

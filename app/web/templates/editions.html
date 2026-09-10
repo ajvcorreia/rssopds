@@ -30,15 +30,23 @@
       {% elif edition.state.value == 'delivered' %}<span class="pill ok">delivered</span>
       {% else %}<span class="pill">{{ edition.state.value }}</span>{% endif %}
     </td>
-    <td class="small muted">
-      {% for delivery in edition.deliveries %}
-      <div>
-        {{ delivery.client_ip }} —
-        {{ '%.0f'|format(100 * delivery.bytes_sent / edition.size_bytes)
-           if edition.size_bytes else 0 }}%
-        {% if delivery.complete %}<span class="pill ok">complete</span>{% endif %}
-      </div>
-      {% else %}—{% endfor %}
+    <td class="dl">
+      {% set entries = downloads.get(edition.id, []) %}
+      {% if entries %}
+      <ul class="dl-list">
+        {% for e in entries[:3] %}
+        <li title="{{ e.ua }} at {{ e.ip }}">
+          <span class="dev">{{ e.device }}</span>
+          <span class="pct {{ 'done' if e.complete else 'part' }}">{{ e.pct }}%</span>
+        </li>
+        {% endfor %}
+        {% if entries|length > 3 %}
+        <li class="more"
+            title="{% for e in entries[3:] %}{{ e.device }} {{ e.pct }}%{% if not loop.last %}, {% endif %}{% endfor %}">
+          +{{ entries|length - 3 }} more</li>
+        {% endif %}
+      </ul>
+      {% else %}<span class="muted">—</span>{% endif %}
     </td>
     <td class="actions">
       {% if edition.epub_file %}

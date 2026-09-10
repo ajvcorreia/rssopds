@@ -397,12 +397,51 @@ def article_release_thread(article_id: int,
 
 # --- editions -------------------------------------------------------------
 
+def short_device(user_agent: str) -> str:
+    """A recognisable name for a client, from its user-agent.
+
+    The downloads column used to show only the IP, so three different readers
+    behind one address were three identical-looking lines.
+    """
+    ua = (user_agent or "").strip()
+    if not ua:
+        return "unknown"
+    first = ua.split()[0]
+    name = first.split("/")[0]
+    # "CrossPoint-ESP32-1.6.0" has its version in the name, not after a slash.
+    name = re.sub(r"[-_]?v?\d+([._]\d+)*$", "", name)
+    return (name or first)[:18]
+
+
+def download_summary(session: Session, editions: list[Edition]) -> dict:
+    """One compact line per client, so the column stays a single row tall."""
+    summary: dict[int, list[dict]] = {}
+    for edition in editions:
+        entries = []
+        for d in edition.deliveries:
+            pct = (100 * d.bytes_sent / edition.size_bytes
+                   if edition.size_bytes else 0)
+            entries.append({
+                "device": short_device(d.user_agent),
+                "ip": d.client_ip or "?",
+                "ua": d.user_agent or "",
+                "pct": round(pct),
+                "complete": bool(d.complete),
+                "started": d.started_at,
+            })
+        # Finished transfers first, then furthest along.
+        entries.sort(key=lambda e: (not e["complete"], -e["pct"]))
+        summary[edition.id] = entries
+    return summary
+
+
 @router.get("/editions", response_class=HTMLResponse)
 def edition_list(request: Request, session: Session = Depends(get_session)):
     rows = list(session.execute(
         select(Edition).order_by(Edition.created_at.desc()).limit(60)
     ).scalars())
     return render(request, "editions.html", editions=rows,
+                  downloads=download_summary(session, rows),
                   EditionState=EditionState)
 
 
