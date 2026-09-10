@@ -39,8 +39,11 @@
       <form class="inline" method="post" action="/feeds/{{ feed.id }}/poll">
         <button type="submit">Poll</button>
       </form>
+      <form class="inline" method="post" action="/feeds/{{ feed.id }}/toggle">
+        <button type="submit">{{ 'Enable' if not feed.enabled else 'Disable' }}</button>
+      </form>
       <form class="inline" method="post" action="/feeds/{{ feed.id }}/delete"
-            onsubmit="return confirm('Delete {{ feed.title }} and all its items?')">
+            onsubmit="return confirm('Delete {{ feed.title }} and all its items? This can\'t be undone -- disable it instead to just stop polling and keep its history.')">
         <button class="danger" type="submit">Delete</button>
       </form>
       </div>

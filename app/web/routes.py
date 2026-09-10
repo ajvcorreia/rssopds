@@ -189,6 +189,18 @@ def feed_poll(feed_id: int):
     return back("/feeds", "Poll queued.")
 
 
+@router.post("/feeds/{feed_id}/toggle")
+def feed_toggle(feed_id: int, session: Session = Depends(get_session)):
+    feed = session.get(Feed, feed_id)
+    if feed is None:
+        raise HTTPException(404, "no such feed")
+    feed.enabled = not feed.enabled
+    session.commit()
+    scheduler.reschedule_feed(feed)
+    verb = "Enabled" if feed.enabled else "Disabled"
+    return back("/feeds", f"{verb} “{feed.title}”.")
+
+
 # --- Threads / fediverse helper ------------------------------------------
 
 @router.get("/threads", response_class=HTMLResponse)
