@@ -8,3 +8,7 @@ data/
 *.db-wal
 *.db-shm
 .env
+
+# Local operational notes: real hosts, deployment history, device-specific
+# debugging. Never meant to leave this machine.
+OPERATIONS.md

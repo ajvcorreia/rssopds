@@ -1,30 +1,45 @@
 # RSSOPDS
 
-Pulls RSS/Atom feeds and Threads (Meta) posts, cleans them with a local model,
-builds one EPUB per category, and serves them over OPDS. Articles disappear
-from the catalogue once the ereader has actually finished downloading them.
+Pulls RSS/Atom feeds and Threads (Meta) posts, cleans the articles with a
+local LLM, builds one EPUB per category, and serves them over OPDS so an
+e-reader can sync them like a magazine subscription. Articles disappear from
+the catalogue once the reader has actually finished downloading them.
 
-## Running it
+## Features
+
+- **RSS/Atom and Threads (Meta)** as sources, the latter over ActivityPub —
+  see [Threads (Meta)](#threads-meta) below.
+- **Self-thread merging**: a chain of replies from the same author becomes one
+  article instead of several fragments.
+- **AI cleanup with a safety net**: an optional local-LLM pass tidies each
+  article, but its output is discarded automatically if it drops too much of
+  the original text — the rule-based cleaner always runs first as a floor.
+- **One EPUB per category**, rebuilt automatically as new articles arrive.
+- **Delivery-aware**: articles are marked read only once the e-reader has
+  fully downloaded the edition, inferred from actual bytes transferred rather
+  than a request succeeding.
+- **A live OPDS access log** — see exactly which device connected, what it
+  asked for, and whether the transfer completed.
+- **Everything configured from the web UI** — feeds, categories, cleanup
+  behaviour, cover art, image sizing, all editable without touching a file.
+
+## Quick start
 
 ```sh
+cp .env.example .env      # optional — see Authentication below
 docker compose up -d --build
 ```
 
-Web UI and OPDS on port 8000:
+Then open:
 
-- `http://<host>:8000/` — configuration and status
-- `http://<host>:8000/opds` — point the ereader here
+- `http://<host>:8000/` — the web UI: add feeds, categories, tune settings
+- `http://<host>:8000/opds` — point your e-reader's OPDS client here
 
-Verified on Ubuntu 26.04 / Docker 29.7.2 (`LinuxCodeTesting`, 192.168.10.189),
-built from this Dockerfile and driven end to end against a live BBC RSS feed.
-
-Ollama is expected on the host, not in the container. Set the **Ollama base
-URL** in Settings (default `http://host.docker.internal:11434`) and pull a
-model, e.g. `ollama pull qwen2.5:7b-instruct`.
-
-Everything else is configured in the web UI. Only paths, the bind address and
-the credentials come from the environment, because they are needed before the
-database opens.
+If you want the AI cleanup pass, run [Ollama](https://ollama.com) somewhere
+reachable from the container and set **Ollama base URL** in Settings (default
+`http://host.docker.internal:11434`), then pull a model, e.g.
+`ollama pull qwen2.5:7b-instruct`. Everything else — feeds, categories, image
+sizing, cleanup behaviour — is configured from the web UI, not files.
 
 ## Authentication
 
@@ -39,7 +54,7 @@ docker compose up -d      # read at startup only, so restart after editing
 | Variable | Effect |
 | --- | --- |
 | `RSSOPDS_WEB_USER` / `_PASSWORD` | Protects the whole web UI. Blank user = no auth at all. |
-| `RSSOPDS_OPDS_USER` / `_PASSWORD` | A separate credential for the ereader. Blank = the OPDS catalogue reuses the web pair. |
+| `RSSOPDS_OPDS_USER` / `_PASSWORD` | A separate credential for the e-reader. Blank = the OPDS catalogue reuses the web pair. |
 | `RSSOPDS_OPDS_PUBLIC` | `true` leaves OPDS open while the web UI stays protected — for readers that cannot send credentials. |
 
 Setting only the web pair protects **both** the UI and OPDS. Give the device
@@ -114,7 +129,7 @@ guessed from "1/n" markers or timing.
 
 A thread is **held open** for `thread_grace_minutes` (default 3h) after its
 newest part. This is the setting that matters: publish immediately and parts
-1–3 ship to the ereader, get marked read, vanish, and parts 4–6 turn up the
+1–3 ship to the e-reader, get marked read, vanish, and parts 4–6 turn up the
 next day as an orphan with no beginning. Held threads are visible on the
 Articles page and can be released early.
 
@@ -133,145 +148,133 @@ model returns less than `ai_min_retain_ratio` (default 55%) of the text it was
 given, its answer is discarded and the rule-based output is used. A model
 quietly summarising an article it was asked to tidy is the most likely way this
 pipeline could corrupt your reading, so the guard is not optional. If Ollama is
-down, articles still process.
+down, articles still process using the rule-based output.
+
+The Ollama request sends `keep_alive` so the model stays resident between
+articles, and only ever runs one request at a time — a local model has no
+spare capacity for concurrent generation, and overlapping requests just queue
+inside the server while both callers' timeouts keep running.
 
 ## EPUB layout
 
-The books are EPUB 2, written by hand in `pipeline/epub.py` rather than with a
-library. That is a deliberate compatibility choice, not a preference.
+The books are EPUB 2, written by hand in `app/pipeline/epub.py` rather than
+with a packaging library: the OPF sits at the zip root, navigation is a plain
+NCX with no `nav.xhtml`, and each article gets a short-named folder
+(`article_000/index.html`) rather than being flattened into one file. That
+combination is deliberately the most conservative shape available — it is
+understood by essentially every EPUB reader ever built, including ones that
+only partially implement EPUB 3. Contents are grouped under a heading per
+source feed, both on the contents page and in the two-level NCX, so a device's
+own table-of-contents menu groups the same way.
 
-A CrossPoint-ESP32 reader showed the text of the ebooklib-built books but none
-of their images, across ten variants covering format, pixel size, colour mode,
-path shape and container element — while rendering images fine from a
-calibre-built book. The calibre file ships *progressive* JPEGs at 2560x1440 and
-1.2MB, which rules out encoding, dimensions and colour mode. The difference was
-the package:
-
-| | calibre (works) | ebooklib |
-| --- | --- | --- |
-| version | `2.0` | `3.0` |
-| OPF | at the zip root | `EPUB/content.opf` |
-| nav | `toc.ncx` only | `nav.xhtml` + `toc.ncx` |
-| content | `feed_x/article_y/` beside the OPF | all under `EPUB/` |
-| names | short `.html` | long `.xhtml` |
-
-So the writer reproduces the calibre layout. EPUB 2 with an NCX is also the
-more conservative choice generally — every reader understands it, including
-ones far older than EPUB 3.
-
-Images are copied into `article_NNN/images/imgN.jpg`, renamed from their stored
-hashes so paths stay short. `tools/packagingtest.py` builds books in several
-different layouts if you ever need to work out what a new reader accepts.
+Images are copied into `article_NNN/images/imgN.jpg`, renamed from their
+stored hashes so paths stay short. `tools/packagingtest.py` builds books in
+several different layouts if you need to work out what a particular reader
+accepts.
 
 ## Images
 
-Two things about images are not optional if you want them to appear on an
-e-reader:
+Two compatibility choices, on by default:
 
-**Baseline JPEG, never progressive.** Progressive JPEGs decode fine in every
-browser and render as *nothing* on Adobe RMSDK devices — Kobo, Nook, Sony —
-with the image still present in the book and correctly referenced, so nothing
-looks wrong anywhere except the screen. `images.py` writes baseline only, and
-`repair_progressive()` re-encodes anything already cached at startup, then
-forces undelivered editions to rebuild so the fixed bytes actually ship.
+**Baseline JPEG, never progressive.** Progressive JPEGs decode fine in modern
+browsers but render as *nothing* on a number of e-reader devices — the image
+is present and correctly referenced in the book, so nothing looks wrong
+anywhere except the screen. `app/pipeline/images.py` writes baseline only, and
+a startup repair pass re-encodes anything already cached, then forces
+undelivered editions to rebuild so the fixed bytes actually ship.
 
-**Take the page's image, not the feed's.** Feed thumbnails are small — BBC's
-`media:thumbnail` is 240px wide, a postage stamp on a 1400px screen. The
-article page is already being fetched for its text, so its `og:image` /
-`twitter:image` is read from the same response. On a real BBC article that is
-the difference between 240×135 and 1200×675.
+**3-component colour JPEG by default, not single-component greyscale**, for
+the same class of reason — a single-component (greyscale) JPEG is a real
+compatibility risk on some small decoders, even though it is smaller. Turn
+`image_grayscale` on in Settings if you have confirmed your own reader copes
+with it; e-ink displays it identically to colour anyway.
+
+**Take the page's image, not the feed's.** Feed thumbnails are often tiny —
+some RSS `media:thumbnail` entries are only a couple hundred pixels wide,
+noticeably worse than an e-reader screen. The article page is already being
+fetched for its text, so its `og:image` / `twitter:image` is read from the
+same response instead.
 
 Hero images are picked in order: an image inside the article body, then the
-page's `og:image`, then the feed thumbnail. Everything is downscaled to
-`image_max_width` and converted to greyscale by default, since e-ink is
-greyscale anyway and it roughly halves the file.
+page's `og:image`, then the feed thumbnail. Everything is downscaled to fit
+`image_max_width` × `image_max_height` — set these to your reader's actual
+screen resolution in Settings.
 
 ## Delivery detection
 
 OPDS has no "the download worked" callback. The only evidence is bytes the
-server handed to the network, and readers like KOReader use Range requests --
-so a single 206 proves nothing. Each `Delivery` accumulates **merged byte intervals**
-across every request from that client, and the edition counts as delivered only
-once the union covers `delivery_min_fraction` (default 98%) of the file.
+server handed to the network, and readers commonly use Range requests — so a
+single 206 proves nothing on its own. Each `Delivery` accumulates **merged
+byte intervals** across every request from that client, and the edition
+counts as delivered only once the union covers `delivery_min_fraction`
+(default 98%) of the file.
 
 After that a `delivery_confirm_delay_s` grace period runs before the articles
-are marked read, so a sync that completed the transfer but failed on the device
-can still be undone from the Editions page.
+are marked read, so a sync that completed the transfer but failed on the
+device can still be undone from the Editions page.
 
-A category with no available edition is simply absent from the OPDS feed, which
-is what makes empty sections disappear from the ereader.
+A category with no available edition is simply absent from the OPDS feed,
+which is what makes empty sections disappear from the reader.
+
+An edition the reader has already fully downloaded is never superseded by a
+later rebuild — it is confirmed as delivered instead. Superseding an already
+downloaded edition would return its articles to the pool and re-serve them as
+unread in the next book.
 
 **Known limit.** "Bytes sent" means bytes handed to the transport, not a
-receipt from the device — HTTP offers no such receipt. A response small enough
-to fit in one kernel socket buffer (roughly a few hundred KB) is accepted
-whole, so a reader that connects and dies immediately still reads as a full
-transfer. Past that size asyncio flow control makes the count track real
-progress. Editions with images clear that bar; a tiny text-only one does not.
-If a sync looks successful but the device has nothing, use **Mark unread** on
-the Editions page.
+receipt from the device — HTTP offers no such receipt. A response small
+enough to fit in one kernel socket buffer (roughly a few hundred KB) is
+accepted whole, so a reader that connects and disconnects immediately can
+still read as a full transfer. Past that size, flow control makes the count
+track real progress. Editions with images comfortably clear that bar; a tiny
+text-only one may not. If a sync looks successful but the device has nothing,
+use **Mark unread** on the Editions page.
 
 ## Edition naming
 
-Ereaders name the saved file from the OPDS metadata, roughly
-`<author> - <title>.epub`. So a title with only day granularity —
-`Technology - 08 Sep 2026` — produces the same filename for every edition
-built that day, and each new download silently overwrites the last one on the
-device.
+E-readers commonly name the saved file from the OPDS metadata, roughly
+`<author> - <title>.epub`. A title with only day granularity —
+`Technology - 08 Sep 2026` — would produce the same filename for every
+edition built that day, silently overwriting the previous download.
 
-Each edition therefore gets a per-category issue number, and all three places
-a reader might take a name from are distinct per edition:
-
-| Source | Example |
-| --- | --- |
-| OPDS author | `Technology` (the category) |
-| OPDS title | `No. 9 - 08 Sep 2026` |
-| URL | `/opds/edition/9/technology-no009-20260908-1541.epub` |
-| `Content-Disposition` | `technology-no009-20260908-1541.epub` |
-
-A reader that names files `<author> - <title>.epub` therefore saves
-`Technology - No. 9 - 08 Sep 2026.epub`.
-
-`/opds/edition/<id>.epub` still works, so an existing catalogue entry on a
+Each edition gets a per-category issue number, and all three places a reader
+might take a name from are distinct per edition: the OPDS `<title>`, the
+download URL, and the `Content-Disposition` filename all include it, e.g.
+`Technology No. 9 - 08 Sep 2026`. `/opds/edition/<id>.epub` (without the
+issue-numbered name) still works too, so a catalogue entry already saved on a
 device keeps functioning.
 
-The issue number never repeats for a category, including across superseded and
-deleted editions. `edition_title_format` must contain `{n}`, `{time}` or
+The issue number never repeats for a category, including across superseded
+and deleted editions. `edition_title_format` must contain `{n}`, `{time}` or
 `{datetime}`; saving one without any of them warns you on the Settings page.
 
 ## Naming and branding
 
-Nothing this application is called reaches the catalogue, the EPUB metadata or
-the saved filename. The author written into every book and catalogue entry is
-the **category** by default, so an ereader library groups editions by category
-the way it would group a magazine by title. Set **Author / publisher name** in
-Settings to override it with your own.
+Nothing this application is called reaches the catalogue, the EPUB metadata,
+or the saved filename. The author written into every book and catalogue entry
+is the **category** by default, so an e-reader library groups editions by
+category the way it would group a magazine by title. Set **Author / publisher
+name** in Settings to override it with your own.
 
-`catalog_title` (default `Library`) names the catalogue on the device, and the
-outgoing `http_user_agent` is a plain `FeedReader/1.0`. The web UI keeps its
-own name — it is yours, not the device's.
+`catalog_title` (default `Library`) names the catalogue on the device.
 
 ## Upgrading
 
-`init_db()` adds any model columns missing from an existing SQLite file, so a
-new release picks up schema changes on first boot without Alembic. It also
-backfills issue numbers for editions created before numbering existed, and
-moves a setting still holding a superseded default forward to the new one — a
-value you customised yourself is never touched. That covers the edition title
-format, the catalogue title and the HTTP user agent, all of which once carried
-this application's name.
+`init_db()` adds any model columns missing from an existing SQLite file on
+startup, so a new release picks up schema changes without a separate
+migration step. It also moves a setting still holding a superseded default
+forward to the new one — a value you customised yourself is never touched.
 
 ## OPDS log
 
 `/opds-log` shows every request to `/opds` — which device, what it asked for,
-the status, how many bytes moved and any `Range` header — plus a summary of
-clients seen in the last week. It refreshes every 3 seconds, pauses when the
-tab is hidden, and is the quickest way to answer "is the ereader actually
+the status, how many bytes moved, and any `Range` header — plus a summary of
+clients seen in the last week. It refreshes every few seconds, pauses when the
+tab is hidden, and is the quickest way to answer "is the e-reader actually
 talking to this thing?". 401s and 404s show up here too, which is usually what
 you need when a reader will not connect.
 
-Only real `/opds` traffic is recorded; the log page and its own poller are
-excluded, so the list stays quiet when nothing is happening. Retention is
-`opds_log_keep` (default 1000 rows).
+Retention is `opds_log_keep` (default 1000 rows).
 
 ## Tests
 
@@ -281,16 +284,7 @@ python tests/test_output.py     # EPUB structure, RSS parsing, cleaner guards
 ```
 
 Both are self-contained and hit no network. Point `RSSOPDS_DATA_DIR` at a
-scratch directory first, or they will write into `./data`. To run them against
-the built image:
-
-```sh
-docker cp tests rssopds:/app/tests
-docker exec -e RSSOPDS_DATA_DIR=/tmp/t rssopds python /app/tests/test_pipeline.py
-```
-
-(`docker cp` nests into an existing directory — `docker exec rssopds rm -rf
-/app/tests` first when re-copying.)
+scratch directory first, or they will write into `./data`.
 
 ## Layout
 
@@ -300,7 +294,9 @@ docker exec -e RSSOPDS_DATA_DIR=/tmp/t rssopds python /app/tests/test_pipeline.p
 | `app/sources/` | `rss.py`, `fediverse.py` (Threads) behind one adapter contract |
 | `app/pipeline/assemble.py` | Feed items → articles, incl. self-thread merging |
 | `app/pipeline/clean.py` | Sanitiser + guarded Ollama pass |
-| `app/pipeline/editions.py` | EPUB building, byte coverage, delivery state |
+| `app/pipeline/epub.py` | Hand-written EPUB 2 writer |
+| `app/pipeline/editions.py` | Edition building, byte coverage, delivery state |
 | `app/opds/` | Catalogue XML, the tracking download endpoint, access log |
 | `app/web/` | Configuration UI |
 | `app/scheduler.py` | APScheduler wiring; reloads on any settings change |
+| `tools/` | Diagnostic scripts for EPUB compatibility and Ollama benchmarking |

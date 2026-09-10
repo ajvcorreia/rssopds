@@ -11,15 +11,20 @@
 #   data/   the database, EPUBs and cached images live only on the server
 #   .env    credentials, deliberately server-only and gitignored
 #
-#   tools/deploy.sh                 # sync, rebuild, restart, run the tests
-#   tools/deploy.sh --dry-run       # show what would change, touch nothing
-#   tools/deploy.sh --no-tests      # skip the test run
+# Configure the target with environment variables (no defaults are baked in,
+# since this script is checked into the repo):
+#
+#   RSSOPDS_HOST=user@your-server tools/deploy.sh
+#   RSSOPDS_HOST=user@your-server RSSOPDS_SSH_KEY=~/.ssh/id_ed25519 tools/deploy.sh
+#   RSSOPDS_HOST=user@your-server tools/deploy.sh --dry-run    # show, touch nothing
+#   RSSOPDS_HOST=user@your-server tools/deploy.sh --no-tests   # skip the test run
 set -euo pipefail
 
-HOST="${RSSOPDS_HOST:-acorreia@192.168.10.189}"
+: "${RSSOPDS_HOST:?set RSSOPDS_HOST, e.g. RSSOPDS_HOST=user@your-server}"
+HOST="$RSSOPDS_HOST"
 REMOTE_DIR="${RSSOPDS_REMOTE_DIR:-rssopds}"
 PROJECT="${RSSOPDS_COMPOSE_PROJECT:-rssopds}"
-SSH_KEY="${RSSOPDS_SSH_KEY:-/c/Users/acorreia/.ssh/id_rsa}"
+SSH_KEY="${RSSOPDS_SSH_KEY:-$HOME/.ssh/id_rsa}"
 
 DRY=""
 RUN_TESTS=1
