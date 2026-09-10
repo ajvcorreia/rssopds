@@ -13,7 +13,7 @@ from fastapi import (
 from fastapi.responses import HTMLResponse, JSONResponse, RedirectResponse
 from fastapi.templating import Jinja2Templates
 from sqlalchemy import func, select
-from sqlalchemy.orm import Session
+from sqlalchemy.orm import Session, joinedload
 
 from .. import backup, jobs, scheduler
 from ..config import config
@@ -450,7 +450,8 @@ def download_summary(session: Session, editions: list[Edition]) -> dict:
 @router.get("/editions", response_class=HTMLResponse)
 def edition_list(request: Request, session: Session = Depends(get_session)):
     rows = list(session.execute(
-        select(Edition).order_by(Edition.created_at.desc()).limit(60)
+        select(Edition).options(joinedload(Edition.category))
+        .order_by(Edition.created_at.desc()).limit(60)
     ).scalars())
     return render(request, "editions.html", editions=rows,
                   downloads=download_summary(session, rows),

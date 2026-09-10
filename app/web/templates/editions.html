@@ -14,7 +14,7 @@
 <div class="card">
 {% if editions %}
 <table>
-  <tr><th>Edition</th><th>Articles</th><th>Size</th><th>Built</th>
+  <tr><th>Edition</th><th>Category</th><th>Articles</th><th>Size</th><th>Built</th>
       <th>State</th><th>Downloads</th><th></th></tr>
   {% for edition in editions %}
   <tr>
@@ -22,6 +22,7 @@
       <strong>{{ edition.title }}</strong>
       <div class="muted small">{{ edition.epub_file or 'file pruned' }}</div>
     </td>
+    <td class="muted">{{ edition.category.name if edition.category else '—' }}</td>
     <td class="muted">{{ edition.article_count }}</td>
     <td class="muted">{{ '%.1f'|format(edition.size_bytes / 1048576) }} MB</td>
     <td class="muted small">{{ edition.created_at|localtime }}</td>
