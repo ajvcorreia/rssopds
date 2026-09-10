@@ -281,6 +281,23 @@ def list_models(backend: str, base_url: str, api_key: str = "",
     return sorted(m["name"] for m in resp.json().get("models", []))
 
 
+TEST_PROMPT = ("This is a connectivity test, not a real article. Reply with "
+              "one short sentence confirming you received it, and name "
+              "yourself if you know your own model name.")
+
+
+def test_model(backend: str, base_url: str, model: str, api_key: str = "",
+               timeout: int = 30) -> str:
+    """Ask the configured model a trivial question, for the Settings page's
+    Test button -- lets the user confirm the name they typed is actually the
+    model answering, before trusting it with real articles."""
+    reply = _generate(backend, base_url, model, TEST_PROMPT, timeout, 2048,
+                      "5m", api_key)
+    if not reply:
+        raise ValueError("the server returned an empty response")
+    return reply[:500]
+
+
 def ai_clean(html: str, *, backend: str = "ollama", base_url: str, model: str,
              timeout: int, num_ctx: int, min_retain: float, min_words: int = 40,
              keep_alive: str = "30m", prompt: str | None = None,

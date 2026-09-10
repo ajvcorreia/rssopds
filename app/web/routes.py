@@ -631,6 +631,31 @@ def settings_ai_models(backend: str, base_url: str, api_key: str = ""):
     return {"models": models}
 
 
+@router.get("/settings/ai/test")
+def settings_ai_test(backend: str, base_url: str, model: str, api_key: str = "",
+                     timeout: int = 60):
+    """Queried by the settings page's "Test model" button.
+
+    Sends one trivial request through the real code path used for cleanup,
+    so a wrong model name or an unreachable server shows up here instead of
+    only being discovered on the next real article.
+    """
+    if not base_url.strip():
+        return JSONResponse({"error": "enter a base URL first"}, status_code=400)
+    if not model.strip():
+        return JSONResponse({"error": "enter a model first"}, status_code=400)
+    try:
+        reply = clean.test_model(backend, base_url.strip(), model.strip(),
+                                 api_key=api_key, timeout=timeout)
+    except httpx.HTTPError as exc:
+        return JSONResponse({"error": f"could not reach the server: {exc}"},
+                            status_code=502)
+    except (ValueError, KeyError, IndexError) as exc:
+        return JSONResponse({"error": f"unexpected response: {exc}"},
+                            status_code=502)
+    return {"reply": reply}
+
+
 # --- backup / restore -------------------------------------------------------
 
 @router.get("/settings/backup")

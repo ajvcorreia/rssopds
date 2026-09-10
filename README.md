@@ -168,10 +168,14 @@ the rule-based output.
 chat-completions endpoint (vLLM, LM Studio, llama.cpp server,
 text-generation-webui, OpenAI itself, ...). Enter the base URL (and API key,
 for OpenAI-compatible) and click **Fetch available models** to list what the
-server actually has, rather than typing a model name blind. Only one request
-is in flight at a time regardless of backend — a local model has no spare
-capacity for concurrent generation, and a remote one's rate limits aren't
-known up front.
+server actually has, rather than typing a model name blind. Once a model is
+picked, **Test model** sends it one trivial request through the same code
+path real cleanup uses, so a wrong model name, a bad API key or an
+unreachable server shows up immediately, with the model's actual reply
+displayed, instead of only being discovered on the next real article. Only
+one request is in flight at a time regardless of backend — a local model has
+no spare capacity for concurrent generation, and a remote one's rate limits
+aren't known up front.
 
 **Prompt**: the instructions sent to the model, together with the article
 HTML, are fully editable from Settings → AI. The prompt must contain the

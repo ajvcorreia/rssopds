@@ -1076,6 +1076,43 @@ check("the model-picker route reports models found", r.json(), {"models": ["llam
 r = client.get("/settings/ai/models", params={"backend": "ollama", "base_url": ""})
 check("an empty base URL is rejected without a network call", r.status_code, 400)
 
+print("\n[33b] the settings page's \"Test model\" button")
+import httpx  # noqa: E402
+
+
+class _FakeGenerateResponse:
+    def __init__(self, data):
+        self._data = data
+
+    def raise_for_status(self):
+        pass
+
+    def json(self):
+        return self._data
+
+
+truthy("Test model button is on the settings page",
+      client.get("/settings").text.count("Test model") == 2)
+
+_real_httpx_post = clean_mod.httpx.post
+clean_mod.httpx.post = lambda *a, **k: _FakeGenerateResponse(
+    {"response": "Hello, working, I am llama3.2."})
+r = client.get("/settings/ai/test",
+               params={"backend": "ollama", "base_url": "http://x:11434", "model": "llama3.2"})
+clean_mod.httpx.post = _real_httpx_post
+check("a working model reports its reply", r.json(),
+      {"reply": "Hello, working, I am llama3.2."})
+
+clean_mod.httpx.post = lambda *a, **k: (_ for _ in ()).throw(httpx.ConnectError("refused"))
+r = client.get("/settings/ai/test",
+               params={"backend": "ollama", "base_url": "http://dead:11434", "model": "llama3.2"})
+clean_mod.httpx.post = _real_httpx_post
+check("an unreachable server is reported, not a 500", r.status_code, 502)
+
+r = client.get("/settings/ai/test",
+               params={"backend": "ollama", "base_url": "http://x:11434", "model": ""})
+check("a blank model is rejected without a network call", r.status_code, 400)
+
 print("\n[34] the dashboard counts how articles were cleaned")
 import re as _re  # noqa: E402
 

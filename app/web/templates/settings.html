@@ -56,6 +56,12 @@
               onchange="document.getElementById('field-{{ field.key }}').value = this.value; document.getElementById('field-{{ field.key }}').dispatchEvent(new Event('input'))">
       </select>
     </div>
+    <div style="display:flex; gap:8px; align-items:center; flex-wrap:wrap; margin-top:6px">
+      <button type="button" class="btn small"
+              onclick="rssopdsTestModel('{{ backend }}')">
+        Test model</button>
+      <span class="small muted" id="{{ backend }}-test-status"></span>
+    </div>
     {% endif %}
   </label>
   {% endfor %}
@@ -108,6 +114,33 @@ async function rssopdsFetchModels(backend) {
     }
   } catch (err) {
     status.textContent = 'request failed: ' + err;
+  }
+}
+
+async function rssopdsTestModel(backend) {
+  var urlField = document.querySelector(
+    '[name=' + (backend === 'ollama' ? 'ollama_url' : 'openai_base_url') + ']');
+  var keyField = document.querySelector('[name=openai_api_key]');
+  var timeoutField = document.querySelector('[name=ollama_timeout_s]');
+  var modelField = document.getElementById(
+    'field-' + (backend === 'ollama' ? 'ollama_model' : 'openai_model'));
+  var status = document.getElementById(backend + '-test-status');
+  var params = new URLSearchParams({
+    backend: backend, base_url: urlField.value, model: modelField.value,
+  });
+  if (backend === 'openai' && keyField.value) params.set('api_key', keyField.value);
+  if (timeoutField.value) params.set('timeout', timeoutField.value);
+  status.textContent = 'Testing -- this can take a while for a cold model...';
+  try {
+    var resp = await fetch('/settings/ai/test?' + params.toString());
+    var data = await resp.json();
+    if (!resp.ok || data.error) {
+      status.textContent = 'Failed: ' + (data.error || ('request failed (' + resp.status + ')'));
+      return;
+    }
+    status.textContent = 'Model replied: “' + data.reply + '”';
+  } catch (err) {
+    status.textContent = 'Failed: ' + err;
   }
 }
 
