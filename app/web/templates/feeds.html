@@ -35,6 +35,7 @@
       {% else %}<span class="pill warn">new</span>{% endif %}
     </td>
     <td class="actions">
+      <div class="action-buttons">
       <form class="inline" method="post" action="/feeds/{{ feed.id }}/poll">
         <button type="submit">Poll</button>
       </form>
@@ -42,6 +43,7 @@
             onsubmit="return confirm('Delete {{ feed.title }} and all its items?')">
         <button class="danger" type="submit">Delete</button>
       </form>
+      </div>
     </td>
   </tr>
   {% if feed.last_error %}

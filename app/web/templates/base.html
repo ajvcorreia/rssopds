@@ -86,7 +86,12 @@ button.link { border:none; background:none; padding:2px 4px;
 code { background:var(--bg); border:1px solid var(--line); padding:1px 5px;
   border-radius:4px; font-size:13px; }
 .empty { color:var(--muted); padding:20px; text-align:center; }
-.actions { display:flex; gap:6px; justify-content:flex-end; }
+/* The <td> itself must stay display:table-cell -- flex on a table cell
+   pulls it out of row-height calculation, so its border-bottom no longer
+   lines up with the other cells in the same row. The flex layout goes on
+   an inner wrapper instead. */
+td.actions { text-align:right; }
+.action-buttons { display:flex; gap:6px; justify-content:flex-end; }
 details summary { cursor:pointer; color:var(--muted); font-size:14px;
   padding:6px 0; }
 

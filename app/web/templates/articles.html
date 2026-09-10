@@ -38,6 +38,7 @@
       {% else %}<span class="pill">{{ article.state.value }}</span>{% endif %}
     </td>
     <td class="actions">
+      <div class="action-buttons">
       {% if held %}
       <form class="inline" method="post"
             action="/articles/{{ article.id }}/release-thread">
@@ -61,6 +62,7 @@
         <button type="submit">Restore</button>
       </form>
       {% endif %}
+      </div>
     </td>
   </tr>
   {% endfor %}

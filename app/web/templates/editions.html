@@ -49,6 +49,7 @@
       {% else %}<span class="muted">—</span>{% endif %}
     </td>
     <td class="actions">
+      <div class="action-buttons">
       {% if edition.epub_file %}
       <a class="btn" href="/editions/{{ edition.id }}/download.epub">Download</a>
       {% endif %}
@@ -64,6 +65,7 @@
           Mark read</button>
       </form>
       {% endif %}
+      </div>
     </td>
   </tr>
   {% endfor %}

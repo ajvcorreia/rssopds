@@ -44,6 +44,7 @@
     <td class="muted">{{ unread.get(category.id, 0) }}</td>
     <td class="muted">{{ category.sort_order }}</td>
     <td class="actions">
+      <div class="action-buttons">
       {% if category.cover_file %}
       <form class="inline" method="post"
             action="/categories/{{ category.id }}/clear-cover">
@@ -55,6 +56,7 @@
             onsubmit="return confirm('Delete {{ category.name }}?')">
         <button class="danger" type="submit">Delete</button>
       </form>
+      </div>
     </td>
   </tr>
   {% endfor %}
