@@ -1076,6 +1076,37 @@ check("the model-picker route reports models found", r.json(), {"models": ["llam
 r = client.get("/settings/ai/models", params={"backend": "ollama", "base_url": ""})
 check("an empty base URL is rejected without a network call", r.status_code, 400)
 
+print("\n[34] the dashboard counts how articles were cleaned")
+import re as _re  # noqa: E402
+
+
+def _dashboard_stat(label):
+    body = client.get("/").text
+    idx = body.index(label)
+    return int(_re.search(r"<b>(\d+)</b>", body[max(0, idx - 60):idx]).group(1))
+
+
+before_ai = _dashboard_stat("cleaned with AI")
+before_fallback = _dashboard_stat("cleaned with the rule-based fallback")
+
+with session_scope() as s:
+    dash_cat = Category(name="Dashboard Test", slug="dashboard-test")
+    s.add(dash_cat)
+    s.flush()
+    dash_feed = Feed(title="Dashboard Feed", kind=SourceKind.rss, url="http://x",
+                     category_id=dash_cat.id)
+    s.add(dash_feed)
+    s.flush()
+    for by in ("qwen2.5:7b-instruct", "gpt-4o", "rules", "rules", None):
+        s.add(Article(feed_id=dash_feed.id, category_id=dash_cat.id, title="t",
+                      body_html="<p>x</p>", word_count=1,
+                      state=ArticleState.ready, cleaned_by=by))
+
+check("AI-cleaned count includes every non-rules model",
+      _dashboard_stat("cleaned with AI") - before_ai, 2)
+check("fallback count only counts \"rules\", not the untouched article",
+      _dashboard_stat("cleaned with the rule-based fallback") - before_fallback, 2)
+
 print("\n" + "=" * 60)
 if FAILS:
     print(f"{len(FAILS)} FAILURE(S): {FAILS}")

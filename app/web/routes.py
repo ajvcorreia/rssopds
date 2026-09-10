@@ -72,6 +72,14 @@ def dashboard(request: Request, session: Session = Depends(get_session)):
         )
     ).scalar_one()
 
+    cleaned_by_counts = dict(session.execute(
+        select(Article.cleaned_by, func.count(Article.id))
+        .where(Article.cleaned_by.isnot(None))
+        .group_by(Article.cleaned_by)
+    ).all())
+    ai_cleaned = sum(n for by, n in cleaned_by_counts.items() if by != "rules")
+    fallback_cleaned = cleaned_by_counts.get("rules", 0)
+
     catalog = editions_mod.catalog_categories(session)
     feeds = list(session.execute(select(Feed).order_by(Feed.title)).scalars())
     recent = list(session.execute(
@@ -81,6 +89,7 @@ def dashboard(request: Request, session: Session = Depends(get_session)):
     return render(request, "dashboard.html",
                   counts=state_counts, held=held, catalog=catalog,
                   feeds=feeds, recent=recent, ArticleState=ArticleState,
+                  ai_cleaned=ai_cleaned, fallback_cleaned=fallback_cleaned,
                   scheduler_running=scheduler.scheduler.running)
 
 
