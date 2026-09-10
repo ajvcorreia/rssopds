@@ -27,6 +27,31 @@
 </form>
 
 <div class="card">
+  <h2 style="margin-top:0">Backup &amp; Restore</h2>
+  <p class="small muted">A backup is one file: the database plus every EPUB,
+    cached image and cover. The same file is how you move the whole
+    installation to a new machine -- restoring it there brings your feeds,
+    categories, articles and read state across, not just settings.</p>
+  <p class="small muted">It does <strong>not</strong> include <code>.env</code>
+    -- credentials stay on this machine and must be set up separately on a
+    new one. It <strong>does</strong> include anything stored in the
+    database, such as a fediverse access token on a Threads feed, so handle
+    a backup file the way you would handle that token.</p>
+
+  <p><a class="btn" href="/settings/backup">Download backup</a></p>
+
+  <form method="post" action="/settings/restore" enctype="multipart/form-data"
+        onsubmit="return confirm('This replaces the current database and files. The existing data is kept in a dated folder, not deleted, but the app restarts immediately to apply the restore. Continue?')">
+    <label>Restore from a backup file
+      <span class="hint">Validated before anything is touched -- a file
+        that is not a real RSSOPDS backup is rejected with nothing changed.
+        Applying a good one restarts the server.</span>
+      <input type="file" name="backup_file" accept=".gz,.tar.gz" required></label>
+    <button class="danger" type="submit">Restore</button>
+  </form>
+</div>
+
+<div class="card">
   <h2 style="margin-top:0">Not set here</h2>
   <p class="small muted">Paths, the bind address and the optional HTTP basic
     auth credentials come from environment variables, because they are needed

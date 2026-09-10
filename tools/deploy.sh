@@ -68,7 +68,9 @@ if [ "$RUN_TESTS" = "1" ]; then
     && docker exec -e RSSOPDS_DATA_DIR=/tmp/deploy-t1 $PROJECT \
          python /app/tests/test_pipeline.py 2>&1 | tail -2 \
     && docker exec -e RSSOPDS_DATA_DIR=/tmp/deploy-t2 $PROJECT \
-         python /app/tests/test_output.py 2>&1 | tail -2"
+         python /app/tests/test_output.py 2>&1 | tail -2 \
+    && docker exec -e RSSOPDS_DATA_DIR=/tmp/deploy-t3 $PROJECT \
+         python /app/tests/test_backup.py 2>&1 | tail -2"
 fi
 
 echo "==> done"

@@ -290,11 +290,36 @@ you need when a reader will not connect.
 
 Retention is `opds_log_keep` (default 1000 rows).
 
+## Backup & restore
+
+Settings has a **Backup & Restore** card. A backup is one `.tar.gz`: a
+consistent snapshot of the database (taken via SQLite's own backup API, safe
+against a live database being written to concurrently, rather than a raw
+file copy that could grab a torn write) plus every cached EPUB, image and
+cover. The same file serves two purposes: protecting against data loss, and
+moving the whole installation to a new machine -- restoring it there brings
+across every feed, category, article and read-state, not just settings.
+
+It does **not** include `.env` -- credentials are server-local by design and
+set up separately on each machine. It **does** include anything stored in
+the database, including a fediverse access token on a Threads feed, so treat
+a backup file the way you would treat that token.
+
+Restoring is destructive but not permanent: the current database and files
+are moved aside into a timestamped folder rather than deleted, and an
+uploaded file is fully validated -- checked as a real archive, checked for
+path-traversal or symlink entries, and checked that its database has the
+tables an RSSOPDS backup should have -- before anything about the running
+installation is touched. Applying a valid restore ends the process a moment
+after responding, so the container's restart policy brings it back up
+against the restored files; give it about 15 seconds.
+
 ## Tests
 
 ```sh
 python tests/test_pipeline.py   # thread merge -> epub -> OPDS -> ranged download
 python tests/test_output.py     # EPUB structure, RSS parsing, cleaner guards
+python tests/test_backup.py     # backup contents, restore round trip, path-traversal safety
 ```
 
 Both are self-contained and hit no network. Point `RSSOPDS_DATA_DIR` at a
@@ -313,4 +338,5 @@ scratch directory first, or they will write into `./data`.
 | `app/opds/` | Catalogue XML, the tracking download endpoint, access log |
 | `app/web/` | Configuration UI |
 | `app/scheduler.py` | APScheduler wiring; reloads on any settings change |
+| `app/backup.py` | Backup archive creation, restore validation and the file swap |
 | `tools/` | Diagnostic scripts for EPUB compatibility and Ollama benchmarking |

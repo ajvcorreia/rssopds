@@ -15,7 +15,7 @@ from fastapi.templating import Jinja2Templates
 from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
-from .. import jobs, scheduler
+from .. import backup, jobs, scheduler
 from ..config import config
 from ..db import get_session
 from ..models import (
@@ -572,3 +572,66 @@ async def settings_save(request: Request, session: Session = Depends(get_session
                         "from that title, so each new edition will overwrite "
                         "the previous one on the device.")
     return back("/settings", "Settings saved and schedule reloaded.")
+
+
+# --- backup / restore -------------------------------------------------------
+
+@router.get("/settings/backup")
+def settings_backup():
+    """Download a full backup: the database plus every EPUB/image/cover.
+
+    Doubles as a migration file -- restoring it on another machine brings
+    everything across, not just configuration.
+    """
+    from fastapi.responses import FileResponse
+    from starlette.background import BackgroundTask
+
+    try:
+        path = backup.create_backup_archive()
+    except Exception as exc:
+        log.exception("backup failed")
+        return back("/settings", err=f"Backup failed: {exc}")
+
+    return FileResponse(
+        path, media_type="application/gzip",
+        filename=backup.backup_filename(),
+        background=BackgroundTask(lambda: path.unlink(missing_ok=True)),
+    )
+
+
+@router.post("/settings/restore")
+async def settings_restore(backup_file: UploadFile = File(...)):
+    """Replace the live database and files with an uploaded backup.
+
+    Validated before anything is touched. On success the process ends itself
+    a moment after responding, so Docker's restart policy brings the app back
+    up against the restored data -- see backup.schedule_restart for why that
+    is simpler and safer than swapping the live database underneath the
+    running scheduler and connection pool.
+    """
+    try:
+        stage = backup.validate_backup_upload(backup_file.file)
+    except backup.BackupError as exc:
+        return back("/settings", err=f"Restore rejected: {exc}")
+    except Exception as exc:
+        log.exception("restore validation failed")
+        return back("/settings", err=f"Restore failed: {exc}")
+
+    try:
+        # Only pause it if it is actually running -- restore has no business
+        # failing outright just because the scheduler happens to be stopped
+        # for some unrelated reason (polling disabled, or simply never
+        # started, as under a test client with no lifespan). Restore does
+        # not depend on the scheduler at all; this is only to avoid a job
+        # firing in the narrow window between the swap and the restart.
+        if scheduler.scheduler.running:
+            scheduler.scheduler.pause()
+        backup.apply_restore(stage)
+    except Exception as exc:
+        log.exception("restore failed while applying")
+        return back("/settings", err=f"Restore failed while applying: {exc}")
+
+    backup.schedule_restart()
+    return back("/settings",
+               "Restore applied. The server is restarting to load it -- "
+               "reload this page in about 15 seconds.")

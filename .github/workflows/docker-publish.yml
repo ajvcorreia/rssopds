@@ -30,6 +30,11 @@ jobs:
           RSSOPDS_DATA_DIR: ${{ runner.temp }}/data-output
         run: python tests/test_output.py
 
+      - name: Run test_backup.py
+        env:
+          RSSOPDS_DATA_DIR: ${{ runner.temp }}/data-backup
+        run: python tests/test_backup.py
+
   # Builds the image on every push/PR to catch a broken Dockerfile early, but
   # only pushes to Docker Hub on an actual push to main -- a pull request from
   # a fork must never be able to publish an image using these secrets.
