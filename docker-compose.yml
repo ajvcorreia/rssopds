@@ -1,5 +1,10 @@
 services:
   rssopds:
+    image: ajvcorreia/rssopds:latest
+    # Pulled from Docker Hub by default (built and pushed by CI on every
+    # push to main). `build: .` stays available for local development --
+    # `docker compose build` builds from source and tags it as this same
+    # image name, so `docker compose up -d --build` still works untouched.
     build: .
     container_name: rssopds
     restart: unless-stopped

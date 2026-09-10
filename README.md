@@ -27,6 +27,15 @@ the catalogue once the reader has actually finished downloading them.
 
 ```sh
 cp .env.example .env      # optional — see Authentication below
+docker compose pull
+docker compose up -d
+```
+
+That pulls the image published to Docker Hub by CI on every push to `main`.
+Building from source instead — for local development, or to pick up
+uncommitted changes — works the same way it always has:
+
+```sh
 docker compose up -d --build
 ```
 
