@@ -1021,6 +1021,61 @@ with session_scope() as s:
     check("a second migration run leaves intentional duplicates untouched",
           after, before)
 
+print("\n[33] AI settings: the model picker route and the prompt guard")
+from app.pipeline import clean as clean_mod  # noqa: E402
+from app.settings_store import get as sget  # noqa: E402
+
+r = client.get("/settings")
+truthy("backend picker is on the page", 'name="ai_backend"' in r.text)
+truthy("the cleanup prompt textarea is on the page",
+       'id="field-ai_clean_prompt"' in r.text)
+truthy("a reset-to-default button is on the page",
+       "Reset to default prompt" in r.text)
+
+with session_scope() as s:
+    prompt_before = sget(s, "ai_clean_prompt")
+r = client.post("/settings", data={"ai_clean_prompt": "no placeholder here"},
+                follow_redirects=False)
+truthy("saving a prompt without {chunk} is rejected with a warning",
+       "chunk" in r.headers.get("location", ""))
+with session_scope() as s:
+    check("the stored prompt is untouched by the rejected save",
+          sget(s, "ai_clean_prompt"), prompt_before)
+
+r = client.post("/settings", data={
+    "ai_clean_prompt": "Custom prompt. Text: {chunk}",
+    "ai_min_words": "7",
+    "ai_backend": "ollama",
+}, follow_redirects=False)
+with session_scope() as s:
+    check("a valid custom prompt is saved",
+          sget(s, "ai_clean_prompt"), "Custom prompt. Text: {chunk}")
+    check("the word threshold is saved", sget(s, "ai_min_words"), 7)
+    put(s, "ai_clean_prompt", prompt_before)
+    put(s, "ai_min_words", 40)
+
+
+class _FakeModelsResponse:
+    def __init__(self, data):
+        self._data = data
+
+    def raise_for_status(self):
+        pass
+
+    def json(self):
+        return self._data
+
+
+_real_httpx_get = clean_mod.httpx.get
+clean_mod.httpx.get = lambda url, headers=None, timeout=None, **kw: (
+    _FakeModelsResponse({"models": [{"name": "llama3.2"}]}))
+r = client.get("/settings/ai/models", params={"backend": "ollama", "base_url": "http://x:11434"})
+clean_mod.httpx.get = _real_httpx_get
+check("the model-picker route reports models found", r.json(), {"models": ["llama3.2"]})
+
+r = client.get("/settings/ai/models", params={"backend": "ollama", "base_url": ""})
+check("an empty base URL is rejected without a network call", r.status_code, 400)
+
 print("\n" + "=" * 60)
 if FAILS:
     print(f"{len(FAILS)} FAILURE(S): {FAILS}")

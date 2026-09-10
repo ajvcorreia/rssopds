@@ -128,9 +128,10 @@
   <div class="check">
     <input type="checkbox" id="ai" name="clean_with_ai" value="1"
            {{ 'checked' if not feed or feed.clean_with_ai }}>
-    <label for="ai">Clean with the local model
-      <span class="hint">Rule-based cleaning always runs; this adds an Ollama
-        pass on top, discarded automatically if it drops too much text.</span></label>
+    <label for="ai">Clean with AI
+      <span class="hint">Rule-based cleaning always runs; this adds a model
+        pass on top (configured under Settings &rarr; AI), discarded
+        automatically if it drops too much text.</span></label>
   </div>
   <div class="check">
     <input type="checkbox" id="img" name="include_images" value="1"

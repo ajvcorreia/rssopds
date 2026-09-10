@@ -173,7 +173,7 @@ def word_count(html: str) -> int:
     return len(text_of(html).split())
 
 
-# --- Ollama pass ----------------------------------------------------------
+# --- AI cleanup pass --------------------------------------------------------
 
 PROMPT = """You are cleaning an article for display on an e-ink e-reader.
 
@@ -217,41 +217,90 @@ def _chunks(html: str, budget_chars: int) -> list[str]:
 # no spare capacity for parallel work: concurrent requests queue inside the
 # server anyway, but each caller's clock is already running, so they all time
 # out together. Serialising means one request waits for the model to load and
-# the rest then find it warm.
-_OLLAMA_LOCK = threading.Lock()
+# the rest then find it warm. A remote OpenAI-compatible endpoint has no such
+# constraint, but its rate limits are unknown up front, so the same one-at-a-
+# time discipline is applied there too.
+_AI_LOCK = threading.Lock()
 
 
 def _ollama_generate(base_url: str, model: str, prompt: str, timeout: int,
                      num_ctx: int, keep_alive: str = "30m") -> str:
-    with _OLLAMA_LOCK:
-        resp = httpx.post(
-            f"{base_url.rstrip('/')}/api/generate",
-            json={
-                "model": model,
-                "prompt": prompt,
-                "stream": False,
-                # Without keep_alive the model is evicted between articles and
-                # every request pays the multi-GB load cost again.
-                "keep_alive": keep_alive,
-                "options": {"temperature": 0, "num_ctx": num_ctx},
-            },
-            timeout=timeout,
-        )
+    resp = httpx.post(
+        f"{base_url.rstrip('/')}/api/generate",
+        json={
+            "model": model,
+            "prompt": prompt,
+            "stream": False,
+            # Without keep_alive the model is evicted between articles and
+            # every request pays the multi-GB load cost again.
+            "keep_alive": keep_alive,
+            "options": {"temperature": 0, "num_ctx": num_ctx},
+        },
+        timeout=timeout,
+    )
+    resp.raise_for_status()
+    return (resp.json().get("response") or "").strip()
+
+
+def _openai_generate(base_url: str, model: str, prompt: str, timeout: int,
+                     api_key: str = "") -> str:
+    headers = {"Authorization": f"Bearer {api_key}"} if api_key else {}
+    resp = httpx.post(
+        f"{base_url.rstrip('/')}/chat/completions",
+        json={
+            "model": model,
+            "messages": [{"role": "user", "content": prompt}],
+            "temperature": 0,
+        },
+        headers=headers,
+        timeout=timeout,
+    )
+    resp.raise_for_status()
+    return (resp.json()["choices"][0]["message"]["content"] or "").strip()
+
+
+def _generate(backend: str, base_url: str, model: str, prompt: str, timeout: int,
+             num_ctx: int, keep_alive: str, api_key: str) -> str:
+    with _AI_LOCK:
+        if backend == "openai":
+            return _openai_generate(base_url, model, prompt, timeout, api_key)
+        return _ollama_generate(base_url, model, prompt, timeout, num_ctx, keep_alive)
+
+
+def list_models(backend: str, base_url: str, api_key: str = "",
+                timeout: int = 10) -> list[str]:
+    """Ask the server what it has, for the settings page's model picker."""
+    if backend == "openai":
+        headers = {"Authorization": f"Bearer {api_key}"} if api_key else {}
+        resp = httpx.get(f"{base_url.rstrip('/')}/models", headers=headers,
+                         timeout=timeout)
         resp.raise_for_status()
-        return (resp.json().get("response") or "").strip()
+        return sorted(m["id"] for m in resp.json()["data"])
+    resp = httpx.get(f"{base_url.rstrip('/')}/api/tags", timeout=timeout)
+    resp.raise_for_status()
+    return sorted(m["name"] for m in resp.json().get("models", []))
 
 
-def ai_clean(html: str, *, base_url: str, model: str, timeout: int,
-             num_ctx: int, min_retain: float,
-             keep_alive: str = "30m") -> tuple[str, str]:
+def ai_clean(html: str, *, backend: str = "ollama", base_url: str, model: str,
+             timeout: int, num_ctx: int, min_retain: float, min_words: int = 40,
+             keep_alive: str = "30m", prompt: str | None = None,
+             api_key: str = "") -> tuple[str, str]:
     """Return (html, cleaned_by). Falls back to the sanitised input on any doubt."""
     base = sanitize(html)
     if not base:
         return "", "rules"
 
     original_words = word_count(base)
-    if original_words < 40:
+    if original_words < min_words:
         # Short posts (most Threads content) are not worth a model round trip.
+        return base, "rules"
+
+    template = prompt or PROMPT
+    if "{chunk}" not in template:
+        # A custom prompt with the placeholder edited out would never actually
+        # hand the article to the model -- treat that the same as a failed
+        # call rather than silently sending nothing.
+        log.warning("AI clean prompt has no {chunk} placeholder; using rules")
         return base, "rules"
 
     # Roughly 3.5 chars per token, and leave half the window for the answer.
@@ -260,11 +309,11 @@ def ai_clean(html: str, *, base_url: str, model: str, timeout: int,
     pieces: list[str] = []
     try:
         for chunk in _chunks(base, budget):
-            raw = _ollama_generate(base_url, model, PROMPT.format(chunk=chunk),
-                                   timeout, num_ctx, keep_alive)
+            raw = _generate(backend, base_url, model, template.format(chunk=chunk),
+                            timeout, num_ctx, keep_alive, api_key)
             pieces.append(FENCE.sub("", raw))
-    except (httpx.HTTPError, ValueError, KeyError) as exc:
-        log.warning("ollama clean failed, using rule-based output: %s", exc)
+    except (httpx.HTTPError, ValueError, KeyError, IndexError) as exc:
+        log.warning("AI clean failed, using rule-based output: %s", exc)
         return base, "rules"
 
     candidate = sanitize("\n".join(pieces))
@@ -273,7 +322,7 @@ def ai_clean(html: str, *, base_url: str, model: str, timeout: int,
 
     ratio = word_count(candidate) / max(original_words, 1)
     if ratio < min_retain:
-        log.warning("ollama returned %.0f%% of the text (min %.0f%%); "
+        log.warning("model returned %.0f%% of the text (min %.0f%%); "
                     "discarding its output", ratio * 100, min_retain * 100)
         return base, "rules"
 

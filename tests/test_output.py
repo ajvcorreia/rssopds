@@ -610,6 +610,91 @@ check("never more than one request in flight", _concurrent["peak"], 1)
 print(f"        {len(_seen_payloads)} request(s) from 4 threads, peak "
       f"concurrency {_concurrent['peak']}")
 
+print("\n[D3] configurable word threshold, prompt, and the OpenAI-compatible backend")
+_short = "<p>" + " ".join(f"word{i}" for i in range(10)) + "</p>"
+
+body, by = clean.ai_clean(_short, base_url="http://x", model="m", timeout=5,
+                          num_ctx=8192, min_retain=0.55)
+check("a 10-word article skips AI at the default threshold", by, "rules")
+
+_calls = []
+clean._ollama_generate = lambda *a, **k: (_calls.append(a) or _short)
+body, by = clean.ai_clean(_short, base_url="http://x", model="m", timeout=5,
+                          num_ctx=8192, min_retain=0.55, min_words=2)
+clean._ollama_generate = original
+check("a lowered min_words setting sends it to the model", by, "m")
+truthy("exactly one call made", len(_calls) == 1)
+
+_prompts = []
+
+
+def _capture_prompt(base_url, model, prompt, timeout, num_ctx, keep_alive="30m"):
+    _prompts.append(prompt)
+    return _short
+
+
+clean._ollama_generate = _capture_prompt
+clean.ai_clean(_short, base_url="http://x", model="m", timeout=5, num_ctx=8192,
+               min_retain=0.55, min_words=2, prompt="CUSTOM {chunk} END")
+clean._ollama_generate = original
+truthy("a custom prompt template is actually sent",
+       _prompts and _prompts[0].startswith("CUSTOM") and _prompts[0].endswith("END"))
+
+_calls.clear()
+clean._ollama_generate = lambda *a, **k: (_calls.append(a) or _short)
+body, by = clean.ai_clean(_short, base_url="http://x", model="m", timeout=5,
+                          num_ctx=8192, min_retain=0.55, min_words=2,
+                          prompt="no placeholder here")
+clean._ollama_generate = original
+check("a prompt missing {chunk} is refused, not sent", by, "rules")
+truthy("and no request was made for it", len(_calls) == 0)
+
+_openai_calls = []
+
+
+def _fake_openai(base_url, model, prompt, timeout, api_key=""):
+    _openai_calls.append((base_url, model, prompt, api_key))
+    return _short
+
+
+original_openai = clean._openai_generate
+clean._openai_generate = _fake_openai
+body, by = clean.ai_clean(_short, base_url="http://x/v1", model="gpt", timeout=5,
+                          num_ctx=8192, min_retain=0.55, min_words=2,
+                          backend="openai", api_key="sk-test")
+clean._openai_generate = original_openai
+check("openai backend is used when selected", by, "gpt")
+truthy("the api key is carried through",
+       _openai_calls and _openai_calls[0][3] == "sk-test")
+
+
+class _FakeModelsResponse:
+    def __init__(self, data):
+        self._data = data
+
+    def raise_for_status(self):
+        pass
+
+    def json(self):
+        return self._data
+
+
+def _fake_models_get(url, headers=None, timeout=None, **kw):
+    if url.endswith("/api/tags"):
+        return _FakeModelsResponse({"models": [{"name": "b"}, {"name": "a"}]})
+    check("openai model listing sends the bearer token",
+          (headers or {}).get("Authorization"), "Bearer sk-x")
+    return _FakeModelsResponse({"data": [{"id": "gpt-4o"}, {"id": "gpt-4o-mini"}]})
+
+
+_real_get = clean.httpx.get
+clean.httpx.get = _fake_models_get
+check("ollama model list, sorted", clean.list_models("ollama", "http://x:11434"),
+      ["a", "b"])
+check("openai model list, sorted", clean.list_models("openai", "http://x/v1", api_key="sk-x"),
+      ["gpt-4o", "gpt-4o-mini"])
+clean.httpx.get = _real_get
+
 print("\n[E] title derivation and thread markers")
 check("short post title",
       derive_title("<p>Hello there.</p>"), "Hello there.")

@@ -52,14 +52,19 @@ def process_article(session: Session, article: Article, cfg: dict) -> None:
     body = extracted.body_html
 
     if feed and feed.clean_with_ai:
+        backend = cfg["ai_backend"]
         body, cleaned_by = clean.ai_clean(
             body,
-            base_url=cfg["ollama_url"],
-            model=cfg["ollama_model"],
+            backend=backend,
+            base_url=cfg["openai_base_url"] if backend == "openai" else cfg["ollama_url"],
+            model=cfg["openai_model"] if backend == "openai" else cfg["ollama_model"],
             timeout=cfg["ollama_timeout_s"],
             num_ctx=cfg["ollama_num_ctx"],
             min_retain=cfg["ai_min_retain_ratio"],
+            min_words=cfg["ai_min_words"],
             keep_alive=str(cfg["ollama_keep_alive"]),
+            prompt=cfg["ai_clean_prompt"],
+            api_key=cfg["openai_api_key"],
         )
     else:
         body, cleaned_by = clean.sanitize(body), "rules"

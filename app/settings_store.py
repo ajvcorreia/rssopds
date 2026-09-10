@@ -7,26 +7,48 @@ from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from .models import Setting
+from .pipeline.clean import PROMPT as _DEFAULT_AI_PROMPT
 
-# key -> (default, type, group, label, help)
-DEFAULTS: dict[str, tuple[Any, str, str, str, str]] = {
+# key -> (default, type, group, label, help[, choices])
+# choices is only present for kind "choice": a tuple of (value, display) pairs.
+DEFAULTS: dict[str, tuple] = {
+    "ai_backend": ("ollama", "choice", "AI", "Backend",
+                  "Which server to send AI cleanup requests to.",
+                  (("ollama", "Ollama"), ("openai", "OpenAI-compatible"))),
     "ollama_url": ("http://host.docker.internal:11434", "str", "AI",
                    "Ollama base URL",
-                   "Where the local model server listens."),
-    "ollama_model": ("qwen2.5:7b-instruct", "str", "AI", "Model",
-                     "Instruct model used to tidy article HTML."),
+                   "Where the local model server listens. Used when the "
+                   "backend above is Ollama."),
+    "ollama_model": ("qwen2.5:7b-instruct", "str", "AI", "Ollama model",
+                     "Instruct model used to tidy article HTML. Use \"Fetch "
+                     "available models\" to list what the server actually "
+                     "has installed."),
+    "openai_base_url": ("", "str", "AI", "OpenAI-compatible base URL",
+                        "e.g. https://api.openai.com/v1, or any self-hosted "
+                        "server exposing the OpenAI chat-completions API "
+                        "(vLLM, LM Studio, llama.cpp server, "
+                        "text-generation-webui, Ollama's own /v1 endpoint, "
+                        "...). Used when the backend above is OpenAI-compatible."),
+    "openai_api_key": ("", "str", "AI", "OpenAI-compatible API key",
+                       "Sent as a Bearer token. Leave blank for a local "
+                       "server with no auth."),
+    "openai_model": ("", "str", "AI", "OpenAI-compatible model",
+                     "Use \"Fetch available models\" to list what the "
+                     "endpoint actually serves."),
     "ollama_timeout_s": (300, "int", "AI", "Request timeout (s)",
-                         "Generous on purpose: the first request after the "
-                         "model is evicted has to load several GB from disk, "
-                         "and that alone can exceed a short timeout. Later "
-                         "requests are fast while the model stays resident."),
+                         "Generous on purpose: the first request after a "
+                         "local model is evicted has to load several GB from "
+                         "disk, and that alone can exceed a short timeout. "
+                         "Later requests are fast while the model stays "
+                         "resident. Applies to either backend."),
     "ollama_keep_alive": ("30m", "str", "AI", "Keep the model loaded for",
                           "Passed to Ollama as keep_alive. Articles arrive "
                           "minutes apart, so without this the model is "
                           "unloaded between them and every single request "
                           "pays the full load cost -- which is what turns "
                           "into a timeout. Use 0 to unload immediately, or "
-                          "-1 to keep it loaded indefinitely."),
+                          "-1 to keep it loaded indefinitely. Ollama backend "
+                          "only."),
     "process_max_seconds": (240, "int", "AI", "Processing batch budget (s)",
                             "A processing run stops starting new articles "
                             "after this long and picks up again next time. "
@@ -34,12 +56,22 @@ DEFAULTS: dict[str, tuple[Any, str, str, str, str]] = {
                             "open for the better part of an hour and every "
                             "later run is skipped, stalling the pipeline."),
     "ollama_num_ctx": (8192, "int", "AI", "Context window",
-                       "Articles longer than this are cleaned in chunks."),
+                       "Articles longer than this are cleaned in chunks. "
+                       "Applies to either backend."),
     "ai_min_retain_ratio": (0.55, "float", "AI", "Minimum retained text ratio",
                             "If the model returns less than this fraction of the "
                             "original text, its output is discarded and the "
                             "rule-based clean is used instead. Guards against "
                             "the model summarising or truncating."),
+    "ai_min_words": (40, "int", "AI", "Minimum words to bother with AI",
+                     "Articles shorter than this skip the AI pass entirely "
+                     "and go straight to the rule-based clean -- not worth a "
+                     "model round trip. Most Threads posts land here."),
+    "ai_clean_prompt": (_DEFAULT_AI_PROMPT, "text", "AI", "Cleanup prompt",
+                        "Sent to the model with the article HTML in place of "
+                        "{chunk}. Must contain the literal text {chunk} "
+                        "somewhere, or the model never receives the article "
+                        "and the AI pass is skipped."),
 
     "thread_grace_minutes": (180, "int", "Threads", "Self-thread hold-open (min)",
                              "A self-thread is not published until this long "
@@ -212,9 +244,10 @@ def put(s: Session, key: str, value: Any) -> None:
 def grouped() -> dict[str, list[dict[str, Any]]]:
     """Settings metadata for rendering the settings form."""
     out: dict[str, list[dict[str, Any]]] = {}
-    for key, (default, kind, group, label, help_text) in DEFAULTS.items():
+    for key, (default, kind, group, label, help_text, *rest) in DEFAULTS.items():
         out.setdefault(group, []).append({
             "key": key, "default": default, "kind": kind,
             "label": label, "help": help_text,
+            "choices": rest[0] if rest else None,
         })
     return out

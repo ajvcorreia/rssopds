@@ -8,7 +8,11 @@
 <div class="card">
   <h2 style="margin-top:0">{{ group }}</h2>
   {% for field in fields %}
-  <label>{{ field.label }}
+  {% set ollama_only = ('ollama_url', 'ollama_model', 'ollama_keep_alive') %}
+  {% set openai_only = ('openai_base_url', 'openai_api_key', 'openai_model') %}
+  {% set backend_class = 'backend-ollama' if field.key in ollama_only
+                        else ('backend-openai' if field.key in openai_only else '') %}
+  <label class="{{ backend_class }}">{{ field.label }}
     {% if field.help %}<span class="hint">{{ field.help }}</span>{% endif %}
     {% if field.kind == 'int' %}
       <input type="number" step="1" name="{{ field.key }}"
@@ -16,8 +20,42 @@
     {% elif field.kind == 'float' %}
       <input type="number" step="0.01" name="{{ field.key }}"
              value="{{ values[field.key] }}">
+    {% elif field.kind == 'choice' %}
+      <select name="{{ field.key }}"
+              {% if field.key == 'ai_backend' %}
+              onchange="rssopdsToggleAiBackend(this.value)"
+              {% endif %}>
+        {% for val, disp in field.choices %}
+        <option value="{{ val }}" {{ 'selected' if values[field.key] == val }}>
+          {{ disp }}</option>
+        {% endfor %}
+      </select>
+    {% elif field.kind == 'text' %}
+      <textarea name="{{ field.key }}" id="field-{{ field.key }}"
+                rows="14">{{ values[field.key] }}</textarea>
+      {% if field.key == 'ai_clean_prompt' %}
+      <button type="button" class="btn small" data-target="field-{{ field.key }}"
+              data-default="{{ field.default }}"
+              onclick="document.getElementById(this.dataset.target).value = this.dataset.default">
+        Reset to default prompt</button>
+      {% endif %}
+    {% elif field.key == 'openai_api_key' %}
+      <input type="password" name="{{ field.key }}" value="{{ values[field.key] }}"
+             autocomplete="off">
     {% else %}
       <input type="text" name="{{ field.key }}" value="{{ values[field.key] }}">
+    {% endif %}
+    {% if field.key in ('ollama_model', 'openai_model') %}
+    {% set backend = 'ollama' if field.key == 'ollama_model' else 'openai' %}
+    <div style="display:flex; gap:8px; align-items:center; flex-wrap:wrap; margin-top:6px">
+      <button type="button" class="btn small"
+              onclick="rssopdsFetchModels('{{ backend }}')">
+        Fetch available models</button>
+      <span class="small muted" id="{{ backend }}-model-status"></span>
+      <select id="{{ backend }}-model-select" hidden
+              onchange="document.getElementById('field-{{ field.key }}').value = this.value; document.getElementById('field-{{ field.key }}').dispatchEvent(new Event('input'))">
+      </select>
+    </div>
     {% endif %}
   </label>
   {% endfor %}
@@ -25,6 +63,56 @@
 {% endfor %}
 <button class="primary" type="submit">Save settings</button>
 </form>
+
+<script>
+function rssopdsToggleAiBackend(backend) {
+  document.querySelectorAll('.backend-ollama').forEach(function (el) {
+    el.style.display = backend === 'ollama' ? '' : 'none';
+  });
+  document.querySelectorAll('.backend-openai').forEach(function (el) {
+    el.style.display = backend === 'openai' ? '' : 'none';
+  });
+}
+
+async function rssopdsFetchModels(backend) {
+  var urlField = document.querySelector(
+    '[name=' + (backend === 'ollama' ? 'ollama_url' : 'openai_base_url') + ']');
+  var keyField = document.querySelector('[name=openai_api_key]');
+  var status = document.getElementById(backend + '-model-status');
+  var select = document.getElementById(backend + '-model-select');
+  var modelField = document.getElementById(
+    'field-' + (backend === 'ollama' ? 'ollama_model' : 'openai_model'));
+  var params = new URLSearchParams({backend: backend, base_url: urlField.value});
+  if (backend === 'openai' && keyField.value) params.set('api_key', keyField.value);
+  status.textContent = 'Fetching...';
+  select.hidden = true;
+  try {
+    var resp = await fetch('/settings/ai/models?' + params.toString());
+    var data = await resp.json();
+    if (!resp.ok || data.error) {
+      status.textContent = data.error || ('request failed (' + resp.status + ')');
+      return;
+    }
+    select.innerHTML = '';
+    (data.models || []).forEach(function (m) {
+      var opt = document.createElement('option');
+      opt.value = m; opt.textContent = m;
+      if (m === modelField.value) opt.selected = true;
+      select.appendChild(opt);
+    });
+    if (data.models && data.models.length) {
+      select.hidden = false;
+      status.textContent = data.models.length + ' model(s) found -- pick one.';
+    } else {
+      status.textContent = 'no models reported';
+    }
+  } catch (err) {
+    status.textContent = 'request failed: ' + err;
+  }
+}
+
+rssopdsToggleAiBackend(document.querySelector('[name=ai_backend]').value);
+</script>
 
 <div class="card">
   <h2 style="margin-top:0">Backup &amp; Restore</h2>

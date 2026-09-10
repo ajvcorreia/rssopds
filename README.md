@@ -47,8 +47,10 @@ Then open:
 If you want the AI cleanup pass, run [Ollama](https://ollama.com) somewhere
 reachable from the container and set **Ollama base URL** in Settings (default
 `http://host.docker.internal:11434`), then pull a model, e.g.
-`ollama pull qwen2.5:7b-instruct`. Everything else — feeds, categories, image
-sizing, cleanup behaviour — is configured from the web UI, not files.
+`ollama pull qwen2.5:7b-instruct` — or point Settings → AI at any
+OpenAI-compatible endpoint instead (see [Cleaning](#cleaning) below).
+Everything else — feeds, categories, image sizing, cleanup behaviour — is
+configured from the web UI, not files.
 
 ## Authentication
 
@@ -152,17 +154,30 @@ Rule-based sanitising always runs: scripts, nav, share widgets, newsletter
 prompts, tracking beacons and all attributes go; link text is kept but hrefs
 are dropped, since links are dead weight offline.
 
-The Ollama pass is optional polish on top and is never trusted blind — if the
+The AI pass on top is optional polish, and is never trusted blind — if the
 model returns less than `ai_min_retain_ratio` (default 55%) of the text it was
 given, its answer is discarded and the rule-based output is used. A model
 quietly summarising an article it was asked to tidy is the most likely way this
-pipeline could corrupt your reading, so the guard is not optional. If Ollama is
-down, articles still process using the rule-based output.
+pipeline could corrupt your reading, so the guard is not optional. Articles
+under `ai_min_words` (default 40 — most Threads posts) skip the model
+round trip entirely. If the model is unreachable, articles still process using
+the rule-based output.
 
-The Ollama request sends `keep_alive` so the model stays resident between
-articles, and only ever runs one request at a time — a local model has no
-spare capacity for concurrent generation, and overlapping requests just queue
-inside the server while both callers' timeouts keep running.
+**Backend**: Settings → AI lets you point cleanup at either a local
+[Ollama](https://ollama.com) server or any OpenAI-compatible
+chat-completions endpoint (vLLM, LM Studio, llama.cpp server,
+text-generation-webui, OpenAI itself, ...). Enter the base URL (and API key,
+for OpenAI-compatible) and click **Fetch available models** to list what the
+server actually has, rather than typing a model name blind. Only one request
+is in flight at a time regardless of backend — a local model has no spare
+capacity for concurrent generation, and a remote one's rate limits aren't
+known up front.
+
+**Prompt**: the instructions sent to the model, together with the article
+HTML, are fully editable from Settings → AI. The prompt must contain the
+literal text `{chunk}` — that's where the article gets inserted — a save
+that removes it is rejected rather than silently sending the model nothing.
+A **Reset to default prompt** button restores the built-in wording.
 
 ## EPUB layout
 
@@ -332,7 +347,7 @@ scratch directory first, or they will write into `./data`.
 | `app/models.py` | Schema. Start here. |
 | `app/sources/` | `rss.py`, `fediverse.py` (Threads) behind one adapter contract |
 | `app/pipeline/assemble.py` | Feed items → articles, incl. self-thread merging |
-| `app/pipeline/clean.py` | Sanitiser + guarded Ollama pass |
+| `app/pipeline/clean.py` | Sanitiser + guarded AI pass (Ollama or OpenAI-compatible) |
 | `app/pipeline/epub.py` | Hand-written EPUB 2 writer |
 | `app/pipeline/editions.py` | Edition building, byte coverage, delivery state |
 | `app/opds/` | Catalogue XML, the tracking download endpoint, access log |

@@ -15,6 +15,8 @@ from fastapi.templating import Jinja2Templates
 from sqlalchemy import func, select
 from sqlalchemy.orm import Session, joinedload
 
+import httpx
+
 from .. import backup, jobs, scheduler
 from ..config import config
 from ..db import get_session
@@ -23,7 +25,7 @@ from ..models import (
     JobRun, SourceKind, ThreadMode, utcnow,
 )
 from ..opds import access_log
-from ..pipeline import covers, editions as editions_mod
+from ..pipeline import clean, covers, editions as editions_mod
 from ..security import require_web
 from .. import timeutil
 from ..settings_store import DEFAULTS, all_settings, grouped, put
@@ -569,12 +571,25 @@ def settings_page(request: Request, session: Session = Depends(get_session)):
 @router.post("/settings")
 async def settings_save(request: Request, session: Session = Depends(get_session)):
     form = await request.form()
+    prompt_warning = None
     for key in DEFAULTS:
-        if key in form:
-            put(session, key, str(form[key]).strip())
+        if key not in form:
+            continue
+        value = str(form[key]).strip()
+        if key == "ai_clean_prompt" and "{chunk}" not in value:
+            # Saving this would silently stop the article ever reaching the
+            # model -- refuse just this field rather than corrupt cleanup.
+            prompt_warning = ('The cleanup prompt was not saved: it must '
+                              'contain the literal text {chunk} somewhere.')
+            continue
+        put(session, key, value)
     session.commit()
     scheduler.reload_all()
     timeutil.set_display_timezone(str(form.get("display_timezone", "UTC")))
+
+    if prompt_warning:
+        return back("/settings", "Other settings saved and schedule reloaded.",
+                    err=prompt_warning)
 
     template = str(form.get("edition_title_format", "")).strip()
     if template and not editions_mod.title_is_unique_per_edition(template):
@@ -585,6 +600,26 @@ async def settings_save(request: Request, session: Session = Depends(get_session
                         "from that title, so each new edition will overwrite "
                         "the previous one on the device.")
     return back("/settings", "Settings saved and schedule reloaded.")
+
+
+@router.get("/settings/ai/models")
+def settings_ai_models(backend: str, base_url: str, api_key: str = ""):
+    """Queried by the settings page's "Fetch available models" button.
+
+    Takes the URL/key straight from the form rather than the saved settings,
+    so the user can try a value before saving it.
+    """
+    if not base_url.strip():
+        return JSONResponse({"error": "enter a base URL first"}, status_code=400)
+    try:
+        models = clean.list_models(backend, base_url.strip(), api_key=api_key)
+    except httpx.HTTPError as exc:
+        return JSONResponse({"error": f"could not reach the server: {exc}"},
+                            status_code=502)
+    except (ValueError, KeyError) as exc:
+        return JSONResponse({"error": f"unexpected response: {exc}"},
+                            status_code=502)
+    return {"models": models}
 
 
 # --- backup / restore -------------------------------------------------------
