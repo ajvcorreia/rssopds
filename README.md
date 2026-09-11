@@ -309,15 +309,18 @@ above) and **Ebooks** — a plain, read-only mirror of whatever sits in
 whatever file-sharing method you already use (`scp`, a network share,
 `docker cp`, ...), or from the **Ebooks** page in the web UI, which can
 upload files, create folders, move files and folders between them, and
-delete entries directly — no server access needed. Either way the OPDS
-catalogue reflects the folder structure as-is, no configuration needed, no
-database involved.
+delete entries directly — no server access needed. The web page also shows a
+thumbnail next to each file, extracted straight from the file itself (EPUB
+and CBZ only — anything else shows a plain filename); nothing is generated,
+fetched, or stored beyond a small cache of what was found. Either way the
+OPDS catalogue reflects the folder structure as-is, no configuration needed,
+no database involved.
 
-This is deliberately dumb: no AI cleaning, no cover extraction, no
-read-tracking or disappearing-once-read behaviour like the RSS side has —
-just folders and downloadable files, browsable from any OPDS client. Any file
-type is served (with a best-effort content type from its extension); nothing
-is validated as an actual ebook.
+This is deliberately dumb: no AI cleaning, no read-tracking or
+disappearing-once-read behaviour like the RSS side has — just folders and
+downloadable files, browsable from any OPDS client. Any file type is served
+(with a best-effort content type from its extension); nothing is validated
+as an actual ebook.
 
 Because an ereader that only understands a flat acquisition feed will not
 show folders, point such a device directly at `/opds/rss` to skip straight to

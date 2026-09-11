@@ -26,7 +26,7 @@ from ..models import (
     JobRun, SourceKind, ThreadMode, utcnow,
 )
 from ..opds import access_log
-from ..pipeline import clean, covers, editions as editions_mod
+from ..pipeline import clean, covers, ebook_covers, editions as editions_mod
 from ..security import require_web
 from .. import timeutil
 from ..settings_store import DEFAULTS, all_settings, grouped, put
@@ -410,6 +410,25 @@ def ebooks_download(subpath: str):
         raise HTTPException(404, "no such file")
     return FileResponse(target, media_type=ebooks.guess_mime(target),
                         filename=target.name)
+
+
+@router.get("/ebooks/cover/{subpath:path}")
+def ebooks_cover(subpath: str):
+    """A cached thumbnail of the file's own embedded cover, if it has one.
+
+    Declared before the folder browser for the same reason as the download
+    route above. 404s -- rather than a placeholder image -- for anything
+    without an extractable cover, so the page's <img onerror> can just hide
+    it and fall back to a plain filename.
+    """
+    target = ebooks.resolve(subpath)
+    if target is None or not target.is_file():
+        raise HTTPException(404, "no such file")
+    thumb = ebook_covers.thumbnail(target, config.ebook_cover_dir)
+    if thumb is None:
+        raise HTTPException(404, "no cover")
+    from fastapi.responses import FileResponse
+    return FileResponse(thumb, media_type="image/jpeg")
 
 
 @router.get("/ebooks", response_class=HTMLResponse)

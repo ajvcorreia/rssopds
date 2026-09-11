@@ -15,6 +15,8 @@ td.checkbox { width:1%; }
 .bulk-bar { display:flex; align-items:center; gap:10px; flex-wrap:wrap;
   margin-bottom:14px; }
 .bulk-bar .count { color:var(--muted); font-size:13px; }
+.cover-thumb { width:32px; height:46px; object-fit:cover; border-radius:3px;
+  border:1px solid var(--line); vertical-align:middle; margin-right:8px; }
 </style>
 <h1>Ebooks</h1>
 <p class="sub">A dumb, read-only-over-OPDS mirror of whatever sits in this
@@ -84,7 +86,8 @@ td.checkbox { width:1%; }
   {% set child = (path + '/' + name) if path else name %}
   <tr>
     <td class="checkbox"><input type="checkbox" class="pick" name="files" value="{{ name }}"></td>
-    <td>{{ name }}</td>
+    <td><img class="cover-thumb" src="/ebooks/cover/{{ child|urlencode }}" alt=""
+             loading="lazy" onerror="this.remove()">{{ name }}</td>
     <td class="muted">{{ size|filesizeformat }}</td>
     <td class="actions">
       <div class="action-buttons">

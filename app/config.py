@@ -57,12 +57,18 @@ class Config(BaseSettings):
         # Not managed by the app at all -- the user drops files and folders
         # here directly (it's a bind mount on the host), and /opds/ebooks
         # just mirrors whatever tree it finds. No AI cleaning, no read
-        # tracking, no covers: a dumb, browsable file share over OPDS.
+        # tracking: a dumb, browsable file share over OPDS. Cover thumbnails
+        # are the one exception -- extracted from the files themselves, not
+        # generated or fetched, so still no metadata of the app's own.
         return self.data_dir / "ebooks"
+
+    @property
+    def ebook_cover_dir(self) -> Path:
+        return self.data_dir / "ebook_covers"
 
     def ensure_dirs(self) -> None:
         for d in (self.data_dir, self.epub_dir, self.image_dir, self.cover_dir,
-                 self.ebooks_dir):
+                 self.ebooks_dir, self.ebook_cover_dir):
             d.mkdir(parents=True, exist_ok=True)
 
 
