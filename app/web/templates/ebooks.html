@@ -7,9 +7,14 @@
 {% endmacro %}
 {% block body %}
 <style>
-/* Move forms add a select alongside the usual buttons -- three controls per
-   row need to wrap on narrow screens instead of overflowing the card. */
-.action-buttons { flex-wrap: wrap; }
+/* Per-row actions: a single row of icon buttons, not a stack of full-width
+   ones -- with the move control now handled in bulk above the table, two
+   icons always fit on one line. */
+.icon-btn { padding:5px 8px; font-size:15px; line-height:1; }
+td.checkbox { width:1%; }
+.bulk-bar { display:flex; align-items:center; gap:10px; flex-wrap:wrap;
+  margin-bottom:14px; }
+.bulk-bar .count { color:var(--muted); font-size:13px; }
 </style>
 <h1>Ebooks</h1>
 <p class="sub">A dumb, read-only-over-OPDS mirror of whatever sits in this
@@ -45,22 +50,31 @@
 
 <div class="card">
 {% if dirs or files %}
+<form method="post" id="bulk-form" onsubmit="return submitBulk(event)">
+  <input type="hidden" name="path" value="{{ path }}">
+  <div class="bulk-bar">
+    <button type="submit" formaction="/ebooks/bulk-delete" class="danger">
+      🗑 Delete selected</button>
+    <select name="dest" style="width:auto;max-width:11em">{{ folder_options() }}</select>
+    <button type="submit" formaction="/ebooks/bulk-move">➡ Move selected</button>
+    <span class="count" id="bulk-count"></span>
+  </div>
 <table>
-  <tr><th>Name</th><th>Size</th><th></th></tr>
+  <tr>
+    <th><input type="checkbox" id="select-all" onclick="toggleAll(this)"></th>
+    <th>Name</th><th>Size</th><th></th>
+  </tr>
   {% for name in dirs %}
   {% set child = (path + '/' + name) if path else name %}
   <tr>
+    <td class="checkbox"><input type="checkbox" class="pick" name="dirs" value="{{ name }}"></td>
     <td>📁 <a href="/ebooks/{{ child|urlencode }}">{{ name }}</a></td>
     <td class="muted">—</td>
     <td class="actions">
       <div class="action-buttons">
-      <form class="inline" method="post" action="/ebooks/move-folder/{{ child|urlencode }}">
-        <select name="dest" style="width:auto;max-width:11em">{{ folder_options() }}</select>
-        <button type="submit">Move</button>
-      </form>
       <form class="inline" method="post" action="/ebooks/delete-folder/{{ child|urlencode }}"
             onsubmit="return confirm('Delete “{{ name }}” and everything in it?')">
-        <button class="danger" type="submit">Delete</button>
+        <button class="danger icon-btn" type="submit" title="Delete “{{ name }}”">🗑</button>
       </form>
       </div>
     </td>
@@ -69,24 +83,55 @@
   {% for name, size, mime in files %}
   {% set child = (path + '/' + name) if path else name %}
   <tr>
+    <td class="checkbox"><input type="checkbox" class="pick" name="files" value="{{ name }}"></td>
     <td>{{ name }}</td>
     <td class="muted">{{ size|filesizeformat }}</td>
     <td class="actions">
       <div class="action-buttons">
-      <a class="btn" href="/ebooks/download/{{ child|urlencode }}">Download</a>
-      <form class="inline" method="post" action="/ebooks/move-file/{{ child|urlencode }}">
-        <select name="dest" style="width:auto;max-width:11em">{{ folder_options() }}</select>
-        <button type="submit">Move</button>
-      </form>
+      <a class="btn icon-btn" href="/ebooks/download/{{ child|urlencode }}"
+         title="Download “{{ name }}”">⬇</a>
       <form class="inline" method="post" action="/ebooks/delete-file/{{ child|urlencode }}"
             onsubmit="return confirm('Delete “{{ name }}”?')">
-        <button class="danger" type="submit">Delete</button>
+        <button class="danger icon-btn" type="submit" title="Delete “{{ name }}”">🗑</button>
       </form>
       </div>
     </td>
   </tr>
   {% endfor %}
 </table>
+</form>
+<script>
+function checkedBoxes() {
+  return document.querySelectorAll('#bulk-form input.pick:checked');
+}
+function toggleAll(box) {
+  document.querySelectorAll('#bulk-form input.pick').forEach(function (el) {
+    el.checked = box.checked;
+  });
+  updateCount();
+}
+function updateCount() {
+  var n = checkedBoxes().length;
+  document.getElementById('bulk-count').textContent =
+    n ? n + ' selected' : '';
+}
+document.querySelectorAll('#bulk-form input.pick').forEach(function (el) {
+  el.addEventListener('change', updateCount);
+});
+function submitBulk(event) {
+  var n = checkedBoxes().length;
+  if (n === 0) {
+    alert('Select at least one file or folder first.');
+    return false;
+  }
+  var btn = event.submitter;
+  if (btn && btn.formAction.indexOf('bulk-delete') !== -1) {
+    return confirm('Delete ' + n + ' selected item' + (n === 1 ? '' : 's') +
+                   '? This cannot be undone.');
+  }
+  return true;
+}
+</script>
 {% else %}
 <p class="empty">Nothing here yet — upload a file or drop one onto this
   folder on the server.</p>

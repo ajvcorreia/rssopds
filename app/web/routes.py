@@ -480,54 +480,83 @@ def ebooks_delete_folder(subpath: str):
     return back(dest_url, f"Deleted “{name}” and everything in it.")
 
 
-@router.post("/ebooks/move-file/{subpath:path}")
-def ebooks_move_file(subpath: str, dest: str = Form("")):
-    parent = subpath.rsplit("/", 1)[0] if "/" in subpath else ""
-    dest_url = f"/ebooks/{urlquote(parent)}" if parent else "/ebooks"
+def _bulk_selection(path: str, files: list[str],
+                    dirs: list[str]) -> tuple[Path | None, list[tuple[str, Path]]]:
+    """Resolve checked filenames (relative to `path`) into real paths.
 
-    source = ebooks.resolve(subpath)
-    if source is None or not source.is_file():
-        return back(dest_url, err="No such file.")
+    Both bulk-delete and bulk-move take the same shape of form data: the
+    current folder, plus the "files" and "dirs" checkboxes checked within it.
+    """
+    base = ebooks.resolve(path)
+    if base is None or not base.is_dir():
+        return None, []
+    items: list[tuple[str, Path]] = []
+    for name in files:
+        if ebooks.is_safe_name(name):
+            items.append(("file", base / name))
+    for name in dirs:
+        if ebooks.is_safe_name(name):
+            items.append(("dir", base / name))
+    return base, items
+
+
+@router.post("/ebooks/bulk-delete")
+def ebooks_bulk_delete(path: str = Form(""), files: list[str] = Form([]),
+                       dirs: list[str] = Form([])):
+    dest_url = f"/ebooks/{urlquote(path)}" if path else "/ebooks"
+    base, items = _bulk_selection(path, files, dirs)
+    if base is None:
+        return back("/ebooks", err="No such folder.")
+    if not items:
+        return back(dest_url, err="Nothing selected.")
+
+    deleted = 0
+    for kind, target in items:
+        if kind == "file" and target.is_file():
+            target.unlink()
+            deleted += 1
+        elif kind == "dir" and target.is_dir():
+            shutil.rmtree(target)
+            deleted += 1
+    return back(dest_url, f"Deleted {deleted} item{'s' if deleted != 1 else ''}.")
+
+
+@router.post("/ebooks/bulk-move")
+def ebooks_bulk_move(path: str = Form(""), dest: str = Form(""),
+                     files: list[str] = Form([]), dirs: list[str] = Form([])):
+    dest_url = f"/ebooks/{urlquote(path)}" if path else "/ebooks"
+    base, items = _bulk_selection(path, files, dirs)
+    if base is None:
+        return back("/ebooks", err="No such folder.")
+    if not items:
+        return back(dest_url, err="Nothing selected.")
     target_dir = ebooks.resolve(dest)
     if target_dir is None or not target_dir.is_dir():
         return back(dest_url, err="No such destination folder.")
 
-    new_path = target_dir / source.name
-    if new_path == source:
-        return back(dest_url, err="Already there.")
-    if new_path.exists():
-        return back(dest_url, err=f"“{source.name}” already exists in that folder.")
+    moved = skipped = 0
+    for kind, source in items:
+        # Moving a folder into itself or one of its own subfolders would
+        # corrupt the tree -- shutil.move refuses this too, but checking up
+        # front lets the whole batch continue instead of raising partway in.
+        if kind == "dir" and (not source.is_dir() or target_dir == source
+                              or source in target_dir.parents):
+            skipped += 1
+            continue
+        if kind == "file" and not source.is_file():
+            skipped += 1
+            continue
+        new_path = target_dir / source.name
+        if new_path == source or new_path.exists():
+            skipped += 1
+            continue
+        shutil.move(str(source), str(new_path))
+        moved += 1
 
-    shutil.move(str(source), str(new_path))
-    return back(dest_url, f"Moved “{source.name}”.")
-
-
-@router.post("/ebooks/move-folder/{subpath:path}")
-def ebooks_move_folder(subpath: str, dest: str = Form("")):
-    parent = subpath.rsplit("/", 1)[0] if "/" in subpath else ""
-    dest_url = f"/ebooks/{urlquote(parent)}" if parent else "/ebooks"
-
-    source = ebooks.resolve(subpath)
-    if source is None or not source.is_dir() or not subpath.strip("/"):
-        return back(dest_url, err="No such folder.")
-    target_dir = ebooks.resolve(dest)
-    if target_dir is None or not target_dir.is_dir():
-        return back(dest_url, err="No such destination folder.")
-
-    # Moving a folder into itself or one of its own subfolders would corrupt
-    # the tree -- shutil.move refuses this too, but catching it up front
-    # gives a clearer message than the "Cannot move a directory..." it raises.
-    if target_dir == source or source in target_dir.parents:
-        return back(dest_url, err="Can't move a folder into itself.")
-
-    new_path = target_dir / source.name
-    if new_path == source:
-        return back(dest_url, err="Already there.")
-    if new_path.exists():
-        return back(dest_url, err=f"“{source.name}” already exists in that folder.")
-
-    shutil.move(str(source), str(new_path))
-    return back(dest_url, f"Moved “{source.name}”.")
+    msg = f"Moved {moved} item{'s' if moved != 1 else ''}."
+    if skipped:
+        msg += f" Skipped {skipped} (already there or a name clash)."
+    return back(dest_url, msg)
 
 
 # --- articles -------------------------------------------------------------
