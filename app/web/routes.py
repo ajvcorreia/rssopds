@@ -414,7 +414,7 @@ def ebooks_download(subpath: str):
 
 @router.get("/ebooks", response_class=HTMLResponse)
 @router.get("/ebooks/{subpath:path}", response_class=HTMLResponse)
-def ebooks_folder(subpath: str, request: Request):
+def ebooks_folder(request: Request, subpath: str = ""):
     return _ebooks_folder(request, subpath)
 
 
