@@ -149,6 +149,12 @@ client = TestClient(app)
 
 print("\n[6] OPDS catalogue lists the category")
 r = client.get("/opds")
+check("root status", r.status_code, 200)
+truthy("root is a navigation feed", "kind=navigation" in r.headers["content-type"])
+truthy("root links to RSS", "/opds/rss" in r.text)
+truthy("root links to Ebooks", "/opds/ebooks" in r.text)
+
+r = client.get("/opds/rss")
 check("status", r.status_code, 200)
 truthy("category present", "Threads" in r.text)
 truthy("acquisition link", f"/opds/edition/{ed_id}/" in r.text)
@@ -196,7 +202,7 @@ with session_scope() as s:
     check("article read", s.query(Article).one().state, ArticleState.delivered)
 
 print("\n[11] empty category disappears from the catalogue")
-r = client.get("/opds")
+r = client.get("/opds/rss")
 truthy("category gone", "urn:opds:edition" not in r.text)
 truthy("still valid atom", r.text.startswith("<?xml"))
 truthy("shows nothing-new entry", "Nothing new" in r.text)
@@ -318,7 +324,7 @@ with session_scope() as s:
     check("issue numbers increment", numbers, sorted(set(numbers)))
     print("        titles:", titles)
 
-r = client.get("/opds")
+r = client.get("/opds/rss")
 hrefs = re.findall(r'href="([^"]*\.epub)"', r.text)
 truthy("catalog advertises a named .epub URL",
        hrefs and not hrefs[0].rstrip("0123456789").endswith("/edition/"))
@@ -413,6 +419,9 @@ print("\n[20] the application's own name reaches neither the catalogue nor the b
 import zipfile  # noqa: E402
 
 r = client.get("/opds")
+truthy("nav root is free of the app name", "rssopds" not in r.text.lower())
+
+r = client.get("/opds/rss")
 lowered = r.text.lower()
 truthy("catalogue XML is free of the app name", "rssopds" not in lowered)
 truthy("entry author is the category",
@@ -445,7 +454,7 @@ with session_scope() as s:
     s.query(Article).update({Article.state: ArticleState.ready})
 with session_scope() as s:
     editions.build_all(s)
-r = client.get("/opds")
+r = client.get("/opds/rss")
 truthy("publisher used as entry author",
        "<name>The Daily Reader</name>" in r.text)
 with session_scope() as s:
@@ -1153,6 +1162,62 @@ check("AI-cleaned count includes every non-rules model",
       _dashboard_stat("cleaned with AI") - before_ai, 2)
 check("fallback count only counts \"rules\", not the untouched article",
       _dashboard_stat("cleaned with the rule-based fallback") - before_fallback, 2)
+
+print("\n[35] the Ebooks folder: a dumb mirror of whatever sits on disk")
+from app.opds import routes as opds_routes  # noqa: E402
+
+r = client.get("/opds/ebooks")
+truthy("empty ebooks root says so", "Nothing here yet" in r.text)
+
+(config.ebooks_dir / "Self-Help").mkdir(exist_ok=True)
+(config.ebooks_dir / "Self-Help" / "Atomic Habits.epub").write_bytes(b"x" * 100)
+(config.ebooks_dir / "loose.pdf").write_bytes(b"y" * 50)
+
+r = client.get("/opds/ebooks")
+check("root status", r.status_code, 200)
+truthy("root is a navigation feed", "kind=navigation" in r.headers["content-type"])
+truthy("subfolder listed", "Self-Help" in r.text)
+truthy("subfolder link points into itself",
+       "/opds/ebooks/Self-Help" in r.text)
+truthy("a loose file at the root is also listed", "loose" in r.text)
+truthy("loose file gets an acquisition link",
+       "/opds/ebooks-file/loose.pdf" in r.text)
+
+r = client.get("/opds/ebooks/Self-Help")
+check("subfolder status", r.status_code, 200)
+truthy("book listed by its title, without the extension",
+       "<title>Atomic Habits</title>" in r.text)
+truthy("book download link carries the epub mimetype",
+       'type="application/epub+zip"' in r.text)
+truthy("book download link carries its real size",
+       'length="100"' in r.text)
+truthy("a folder view links back up", 'rel="up"' in r.text)
+
+r = client.get("/opds/ebooks-file/Self-Help/Atomic%20Habits.epub")
+check("download status", r.status_code, 200)
+check("download bytes match the file on disk", r.content, b"x" * 100)
+check("download content-type", r.headers["content-type"], "application/epub+zip")
+
+r = client.get("/opds/ebooks-file/loose.pdf")
+check("a plain pdf gets the right content-type",
+      r.headers["content-type"], "application/pdf")
+
+print("\n[35b] path traversal out of the ebooks folder is refused")
+for evil in ("../../etc/passwd", "Self-Help/../../etc/passwd", "/etc/passwd"):
+    try:
+        opds_routes._resolve_ebook_path(evil)
+        FAILS.append(f"traversal not rejected: {evil!r}")
+        print(f"  FAIL  {evil!r} should have been rejected")
+    except Exception as exc:
+        ok = getattr(exc, "status_code", None) == 404
+        print(f"  {'PASS' if ok else 'FAIL'}  {evil!r} rejected: {exc}")
+        if not ok:
+            FAILS.append(f"wrong error for {evil!r}: {exc}")
+
+r = client.get("/opds/ebooks/does-not-exist")
+check("browsing a folder that does not exist 404s", r.status_code, 404)
+r = client.get("/opds/ebooks-file/does-not-exist.epub")
+check("downloading a file that does not exist 404s", r.status_code, 404)
 
 print("\n" + "=" * 60)
 if FAILS:

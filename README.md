@@ -22,6 +22,9 @@ the catalogue once the reader has actually finished downloading them.
   asked for, and whether the transfer completed.
 - **Everything configured from the web UI** — feeds, categories, cleanup
   behaviour, cover art, image sizing, all editable without touching a file.
+- **An Ebooks folder alongside RSS**: drop your own books into `data/ebooks/`
+  on the server (in whatever folders you like) and browse them from the same
+  OPDS catalogue — see [Ebooks](#ebooks) below.
 
 ## Quick start
 
@@ -297,6 +300,26 @@ name** in Settings to override it with your own.
 startup, so a new release picks up schema changes without a separate
 migration step. It also moves a setting still holding a superseded default
 forward to the new one — a value you customised yourself is never touched.
+
+## Ebooks
+
+`/opds` is a small folder view with two entries: **RSS** (everything described
+above) and **Ebooks** — a plain, read-only mirror of whatever sits in
+`data/ebooks/` on the server. Create folders there yourself (`self-help`,
+`technical`, `IT`, ...) and drop files into them over whatever file-sharing
+method you already use (`scp`, a network share, `docker cp`, ...); the OPDS
+catalogue reflects the folder structure as-is, no configuration needed, no
+database involved.
+
+This is deliberately dumb: no AI cleaning, no cover extraction, no
+read-tracking or disappearing-once-read behaviour like the RSS side has —
+just folders and downloadable files, browsable from any OPDS client. Any file
+type is served (with a best-effort content type from its extension); nothing
+is validated as an actual ebook.
+
+Because an ereader that only understands a flat acquisition feed will not
+show folders, point such a device directly at `/opds/rss` to skip straight to
+the RSS side, exactly as before this feature existed.
 
 ## OPDS log
 

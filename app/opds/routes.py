@@ -2,9 +2,10 @@
 from __future__ import annotations
 
 import logging
+import mimetypes
 import re
 from datetime import datetime
-from pathlib import Path
+from pathlib import Path, PurePosixPath
 
 from fastapi import APIRouter, Depends, HTTPException, Request, Response
 from fastapi.responses import FileResponse, StreamingResponse
@@ -29,6 +30,17 @@ router = APIRouter(tags=["opds"], dependencies=[Depends(require_opds)])
 CHUNK = 64 * 1024
 RANGE_RE = re.compile(r"bytes=(\d*)-(\d*)")
 
+# mimetypes' built-in table doesn't know most ebook formats.
+EBOOK_MIME_OVERRIDES = {
+    ".epub": "application/epub+zip",
+    ".mobi": "application/x-mobipocket-ebook",
+    ".azw": "application/vnd.amazon.ebook",
+    ".azw3": "application/vnd.amazon.ebook",
+    ".cbz": "application/vnd.comicbook+zip",
+    ".cbr": "application/vnd.comicbook-rar",
+    ".fb2": "application/x-fictionbook+xml",
+}
+
 
 def base_url(request: Request) -> str:
     if config.base_url:
@@ -36,7 +48,40 @@ def base_url(request: Request) -> str:
     return str(request.base_url).rstrip("/")
 
 
+def _ebook_mime(path: Path) -> str:
+    override = EBOOK_MIME_OVERRIDES.get(path.suffix.lower())
+    return override or mimetypes.guess_type(path.name)[0] or "application/octet-stream"
+
+
+def _resolve_ebook_path(subpath: str) -> Path:
+    """Resolve a URL subpath to a real path strictly inside ebooks_dir.
+
+    Checked before it ever reaches pathlib's `/` operator: joining onto an
+    absolute right-hand operand silently discards the left side entirely, so
+    a subpath of "/etc/passwd" would otherwise become a real filesystem
+    escape rather than a rejected request.
+    """
+    rel = PurePosixPath(subpath)
+    if rel.is_absolute() or ".." in rel.parts:
+        raise HTTPException(404, "not found")
+    base = config.ebooks_dir.resolve()
+    target = (base / subpath).resolve()
+    if target != base and base not in target.parents:
+        raise HTTPException(404, "not found")
+    return target
+
+
 @router.get("/opds")
+def catalog_root(request: Request, session: Session = Depends(get_session)) -> Response:
+    xml = feedgen.opds_root(
+        base=base_url(request),
+        title=setting(session, "catalog_title"),
+        publisher=str(setting(session, "publisher_name")).strip(),
+    )
+    return Response(content=xml, media_type=feedgen.OPDS_NAVIGATION)
+
+
+@router.get("/opds/rss")
 def catalog(request: Request, session: Session = Depends(get_session)) -> Response:
     entries = editions_mod.catalog_categories(session)
 
@@ -51,7 +96,7 @@ def catalog(request: Request, session: Session = Depends(get_session)) -> Respon
             )
         ]
 
-    xml = feedgen.catalog(
+    xml = feedgen.rss_catalog(
         title=setting(session, "catalog_title"),
         base=base_url(request),
         entries=entries,
@@ -59,6 +104,36 @@ def catalog(request: Request, session: Session = Depends(get_session)) -> Respon
         publisher=str(setting(session, "publisher_name")).strip(),
     )
     return Response(content=xml, media_type=feedgen.OPDS_ACQUISITION)
+
+
+@router.get("/opds/ebooks")
+@router.get("/opds/ebooks/{subpath:path}")
+def ebooks_browse(request: Request, subpath: str = "") -> Response:
+    target = _resolve_ebook_path(subpath)
+    if not target.is_dir():
+        raise HTTPException(404, "not found")
+
+    dirs: list[str] = []
+    files: list[tuple[str, int, str]] = []
+    for entry in sorted(target.iterdir(), key=lambda p: p.name.lower()):
+        if entry.name.startswith("."):
+            continue
+        if entry.is_dir():
+            dirs.append(entry.name)
+        elif entry.is_file():
+            files.append((entry.name, entry.stat().st_size, _ebook_mime(entry)))
+
+    xml = feedgen.ebooks_nav(base=base_url(request), path=subpath.strip("/"),
+                             dirs=dirs, files=files)
+    return Response(content=xml, media_type=feedgen.OPDS_NAVIGATION)
+
+
+@router.get("/opds/ebooks-file/{subpath:path}")
+def ebooks_download(subpath: str) -> Response:
+    target = _resolve_ebook_path(subpath)
+    if not target.is_file():
+        raise HTTPException(404, "not found")
+    return FileResponse(target, media_type=_ebook_mime(target), filename=target.name)
 
 
 @router.get("/opds/cover/{category_id}.jpg")
