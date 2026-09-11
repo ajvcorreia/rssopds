@@ -1,0 +1,75 @@
+{% extends "base.html" %}
+{% block title %}Ebooks{% endblock %}
+{% block body %}
+<h1>Ebooks</h1>
+<p class="sub">A dumb, read-only-over-OPDS mirror of whatever sits in this
+  folder on the server. Upload files here instead of scp/docker cp; nothing
+  gets cleaned up, covered, or read-tracked — it's a plain shelf.</p>
+
+<p class="small">
+  <a href="/ebooks">Ebooks</a>
+  {% for name, crumb in crumbs %} / <a href="/ebooks/{{ crumb|urlencode }}">{{ name }}</a>{% endfor %}
+</p>
+
+<div class="card">
+  <h2 style="margin-top:0">Upload files</h2>
+  <form method="post" action="/ebooks/upload" enctype="multipart/form-data">
+    <input type="hidden" name="path" value="{{ path }}">
+    <label>Files
+      <span class="hint">Uploading here saves into “{{ path or 'Ebooks' }}”. A
+        file with the same name is overwritten.</span>
+      <input type="file" name="files" multiple required>
+    </label>
+    <p><button class="primary" type="submit">Upload</button></p>
+  </form>
+</div>
+
+<div class="card">
+  <h2 style="margin-top:0">New folder</h2>
+  <form method="post" action="/ebooks/mkdir" class="row">
+    <input type="hidden" name="path" value="{{ path }}">
+    <div><label>Name<input type="text" name="name" required></label></div>
+    <div class="narrow"><button type="submit">Create</button></div>
+  </form>
+</div>
+
+<div class="card">
+{% if dirs or files %}
+<table>
+  <tr><th>Name</th><th>Size</th><th></th></tr>
+  {% for name in dirs %}
+  {% set child = (path + '/' + name) if path else name %}
+  <tr>
+    <td>📁 <a href="/ebooks/{{ child|urlencode }}">{{ name }}</a></td>
+    <td class="muted">—</td>
+    <td class="actions">
+      <form class="inline" method="post" action="/ebooks/delete-folder/{{ child|urlencode }}"
+            onsubmit="return confirm('Delete “{{ name }}” and everything in it?')">
+        <button class="danger" type="submit">Delete</button>
+      </form>
+    </td>
+  </tr>
+  {% endfor %}
+  {% for name, size, mime in files %}
+  {% set child = (path + '/' + name) if path else name %}
+  <tr>
+    <td>{{ name }}</td>
+    <td class="muted">{{ size|filesizeformat }}</td>
+    <td class="actions">
+      <div class="action-buttons">
+      <a class="btn" href="/ebooks/download/{{ child|urlencode }}">Download</a>
+      <form class="inline" method="post" action="/ebooks/delete-file/{{ child|urlencode }}"
+            onsubmit="return confirm('Delete “{{ name }}”?')">
+        <button class="danger" type="submit">Delete</button>
+      </form>
+      </div>
+    </td>
+  </tr>
+  {% endfor %}
+</table>
+{% else %}
+<p class="empty">Nothing here yet — upload a file or drop one onto this
+  folder on the server.</p>
+{% endif %}
+</div>
+{% endblock %}

@@ -305,11 +305,12 @@ forward to the new one — a value you customised yourself is never touched.
 
 `/opds` is a small folder view with two entries: **RSS** (everything described
 above) and **Ebooks** — a plain, read-only mirror of whatever sits in
-`data/ebooks/` on the server. Create folders there yourself (`self-help`,
-`technical`, `IT`, ...) and drop files into them over whatever file-sharing
-method you already use (`scp`, a network share, `docker cp`, ...); the OPDS
-catalogue reflects the folder structure as-is, no configuration needed, no
-database involved.
+`data/ebooks/` on the server. Populate it either by dropping files in over
+whatever file-sharing method you already use (`scp`, a network share,
+`docker cp`, ...), or from the **Ebooks** page in the web UI, which can
+upload files, create folders, and delete entries directly — no server access
+needed. Either way the OPDS catalogue reflects the folder structure as-is, no
+configuration needed, no database involved.
 
 This is deliberately dumb: no AI cleaning, no cover extraction, no
 read-tracking or disappearing-once-read behaviour like the RSS side has —

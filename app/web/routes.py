@@ -6,6 +6,7 @@ import re
 import shutil
 from datetime import timedelta, timezone
 from pathlib import Path
+from urllib.parse import quote as urlquote
 
 from fastapi import (
     APIRouter, Depends, File, Form, HTTPException, Request, UploadFile,
@@ -17,7 +18,7 @@ from sqlalchemy.orm import Session, joinedload
 
 import httpx
 
-from .. import backup, jobs, scheduler
+from .. import backup, ebooks, jobs, scheduler
 from ..config import config
 from ..db import get_session
 from ..models import (
@@ -369,6 +370,114 @@ def category_clear_cover(category_id: int, session: Session = Depends(get_sessio
         category.cover_file = None
     session.commit()
     return back("/categories", "Reverted to a generated cover.")
+
+
+# --- ebooks shelf -----------------------------------------------------------
+# The dumb, read-only-over-OPDS mirror of data/ebooks/ (see app/ebooks.py and
+# app/opds/routes.py). This gives it a write side: dropping files in used to
+# require scp/docker cp onto the host, which is fine for the server operator
+# but not for anyone else who just wants to add a book.
+
+def _ebooks_folder(request: Request, subpath: str):
+    target = ebooks.resolve(subpath)
+    if target is None or not target.is_dir():
+        return back("/ebooks", err="No such folder.")
+    dirs, files = ebooks.list_dir(target)
+    path = subpath.strip("/")
+    parts = [p for p in path.split("/") if p]
+    crumbs = []
+    for i, part in enumerate(parts):
+        crumbs.append((part, "/".join(parts[: i + 1])))
+    return render(request, "ebooks.html", path=path, parts=parts, crumbs=crumbs,
+                  dirs=dirs, files=files)
+
+
+@router.get("/ebooks/download/{subpath:path}")
+def ebooks_download(subpath: str):
+    """Download from the web UI, behind the web credentials.
+
+    Declared before the folder browser below: both match GET
+    /ebooks/{...:path}, and routes are matched in declaration order, so this
+    has to come first or "download/whatever.epub" would be swallowed as a
+    folder path. The OPDS download URL sits behind the OPDS realm, which can
+    have its own, different password -- see category_cover for the same issue
+    with covers.
+    """
+    from fastapi.responses import FileResponse
+
+    target = ebooks.resolve(subpath)
+    if target is None or not target.is_file():
+        raise HTTPException(404, "no such file")
+    return FileResponse(target, media_type=ebooks.guess_mime(target),
+                        filename=target.name)
+
+
+@router.get("/ebooks", response_class=HTMLResponse)
+@router.get("/ebooks/{subpath:path}", response_class=HTMLResponse)
+def ebooks_folder(subpath: str, request: Request):
+    return _ebooks_folder(request, subpath)
+
+
+@router.post("/ebooks/upload")
+async def ebooks_upload(path: str = Form(""), files: list[UploadFile] = File(...)):
+    target = ebooks.resolve(path)
+    if target is None or not target.is_dir():
+        return back("/ebooks", err="No such folder.")
+
+    saved = 0
+    for upload in files:
+        name = Path(upload.filename or "").name
+        if not name or not ebooks.is_safe_name(name):
+            continue
+        dest = target / name
+        with dest.open("wb") as fh:
+            shutil.copyfileobj(upload.file, fh)
+        saved += 1
+
+    dest_url = f"/ebooks/{urlquote(path)}" if path else "/ebooks"
+    if saved == 0:
+        return back(dest_url, err="No files were uploaded.")
+    return back(dest_url, f"Uploaded {saved} file{'s' if saved != 1 else ''}.")
+
+
+@router.post("/ebooks/mkdir")
+def ebooks_mkdir(path: str = Form(""), name: str = Form(...)):
+    target = ebooks.resolve(path)
+    name = name.strip()
+    dest_url = f"/ebooks/{urlquote(path)}" if path else "/ebooks"
+    if target is None or not target.is_dir():
+        return back("/ebooks", err="No such folder.")
+    if not ebooks.is_safe_name(name):
+        return back(dest_url, err="Not a valid folder name.")
+    new_dir = target / name
+    if new_dir.exists():
+        return back(dest_url, err=f"“{name}” already exists.")
+    new_dir.mkdir()
+    return back(dest_url, f"Created “{name}”.")
+
+
+@router.post("/ebooks/delete-file/{subpath:path}")
+def ebooks_delete_file(subpath: str):
+    target = ebooks.resolve(subpath)
+    parent = subpath.rsplit("/", 1)[0] if "/" in subpath else ""
+    dest_url = f"/ebooks/{urlquote(parent)}" if parent else "/ebooks"
+    if target is None or not target.is_file():
+        return back(dest_url, err="No such file.")
+    name = target.name
+    target.unlink()
+    return back(dest_url, f"Deleted “{name}”.")
+
+
+@router.post("/ebooks/delete-folder/{subpath:path}")
+def ebooks_delete_folder(subpath: str):
+    parent = subpath.rsplit("/", 1)[0] if "/" in subpath else ""
+    dest_url = f"/ebooks/{urlquote(parent)}" if parent else "/ebooks"
+    target = ebooks.resolve(subpath)
+    if target is None or not target.is_dir() or not subpath.strip("/"):
+        return back(dest_url, err="No such folder.")
+    name = target.name
+    shutil.rmtree(target)
+    return back(dest_url, f"Deleted “{name}” and everything in it.")
 
 
 # --- articles -------------------------------------------------------------
