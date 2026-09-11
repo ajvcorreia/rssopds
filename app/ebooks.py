@@ -63,3 +63,24 @@ def list_dir(target: Path) -> tuple[list[str], list[tuple[str, int, str]]]:
         elif entry.is_file():
             files.append((entry.name, entry.stat().st_size, guess_mime(entry)))
     return dirs, files
+
+
+def list_folders() -> list[str]:
+    """Every folder under the shelf, as relative POSIX paths ("" is the root).
+
+    Powers the "move to" destination picker -- small enough a shelf like this
+    to just list them all rather than browse one level at a time.
+    """
+    base = config.ebooks_dir.resolve()
+    out = [""]
+
+    def walk(dir_path: Path, prefix: str) -> None:
+        for entry in sorted(dir_path.iterdir(), key=lambda p: p.name.lower()):
+            if entry.is_dir() and not entry.name.startswith("."):
+                child = f"{prefix}/{entry.name}" if prefix else entry.name
+                out.append(child)
+                walk(entry, child)
+
+    if base.is_dir():
+        walk(base, "")
+    return out

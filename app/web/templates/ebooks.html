@@ -1,6 +1,16 @@
 {% extends "base.html" %}
 {% block title %}Ebooks{% endblock %}
+{% macro folder_options() %}
+  {% for f in folders %}
+  <option value="{{ f }}"{% if f == path %} selected{% endif %}>{{ f or 'Ebooks (root)' }}</option>
+  {% endfor %}
+{% endmacro %}
 {% block body %}
+<style>
+/* Move forms add a select alongside the usual buttons -- three controls per
+   row need to wrap on narrow screens instead of overflowing the card. */
+.action-buttons { flex-wrap: wrap; }
+</style>
 <h1>Ebooks</h1>
 <p class="sub">A dumb, read-only-over-OPDS mirror of whatever sits in this
   folder on the server. Upload files here instead of scp/docker cp; nothing
@@ -43,10 +53,16 @@
     <td>📁 <a href="/ebooks/{{ child|urlencode }}">{{ name }}</a></td>
     <td class="muted">—</td>
     <td class="actions">
+      <div class="action-buttons">
+      <form class="inline" method="post" action="/ebooks/move-folder/{{ child|urlencode }}">
+        <select name="dest" style="width:auto;max-width:11em">{{ folder_options() }}</select>
+        <button type="submit">Move</button>
+      </form>
       <form class="inline" method="post" action="/ebooks/delete-folder/{{ child|urlencode }}"
             onsubmit="return confirm('Delete “{{ name }}” and everything in it?')">
         <button class="danger" type="submit">Delete</button>
       </form>
+      </div>
     </td>
   </tr>
   {% endfor %}
@@ -58,6 +74,10 @@
     <td class="actions">
       <div class="action-buttons">
       <a class="btn" href="/ebooks/download/{{ child|urlencode }}">Download</a>
+      <form class="inline" method="post" action="/ebooks/move-file/{{ child|urlencode }}">
+        <select name="dest" style="width:auto;max-width:11em">{{ folder_options() }}</select>
+        <button type="submit">Move</button>
+      </form>
       <form class="inline" method="post" action="/ebooks/delete-file/{{ child|urlencode }}"
             onsubmit="return confirm('Delete “{{ name }}”?')">
         <button class="danger" type="submit">Delete</button>

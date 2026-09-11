@@ -389,7 +389,7 @@ def _ebooks_folder(request: Request, subpath: str):
     for i, part in enumerate(parts):
         crumbs.append((part, "/".join(parts[: i + 1])))
     return render(request, "ebooks.html", path=path, parts=parts, crumbs=crumbs,
-                  dirs=dirs, files=files)
+                  dirs=dirs, files=files, folders=ebooks.list_folders())
 
 
 @router.get("/ebooks/download/{subpath:path}")
@@ -478,6 +478,56 @@ def ebooks_delete_folder(subpath: str):
     name = target.name
     shutil.rmtree(target)
     return back(dest_url, f"Deleted “{name}” and everything in it.")
+
+
+@router.post("/ebooks/move-file/{subpath:path}")
+def ebooks_move_file(subpath: str, dest: str = Form("")):
+    parent = subpath.rsplit("/", 1)[0] if "/" in subpath else ""
+    dest_url = f"/ebooks/{urlquote(parent)}" if parent else "/ebooks"
+
+    source = ebooks.resolve(subpath)
+    if source is None or not source.is_file():
+        return back(dest_url, err="No such file.")
+    target_dir = ebooks.resolve(dest)
+    if target_dir is None or not target_dir.is_dir():
+        return back(dest_url, err="No such destination folder.")
+
+    new_path = target_dir / source.name
+    if new_path == source:
+        return back(dest_url, err="Already there.")
+    if new_path.exists():
+        return back(dest_url, err=f"“{source.name}” already exists in that folder.")
+
+    shutil.move(str(source), str(new_path))
+    return back(dest_url, f"Moved “{source.name}”.")
+
+
+@router.post("/ebooks/move-folder/{subpath:path}")
+def ebooks_move_folder(subpath: str, dest: str = Form("")):
+    parent = subpath.rsplit("/", 1)[0] if "/" in subpath else ""
+    dest_url = f"/ebooks/{urlquote(parent)}" if parent else "/ebooks"
+
+    source = ebooks.resolve(subpath)
+    if source is None or not source.is_dir() or not subpath.strip("/"):
+        return back(dest_url, err="No such folder.")
+    target_dir = ebooks.resolve(dest)
+    if target_dir is None or not target_dir.is_dir():
+        return back(dest_url, err="No such destination folder.")
+
+    # Moving a folder into itself or one of its own subfolders would corrupt
+    # the tree -- shutil.move refuses this too, but catching it up front
+    # gives a clearer message than the "Cannot move a directory..." it raises.
+    if target_dir == source or source in target_dir.parents:
+        return back(dest_url, err="Can't move a folder into itself.")
+
+    new_path = target_dir / source.name
+    if new_path == source:
+        return back(dest_url, err="Already there.")
+    if new_path.exists():
+        return back(dest_url, err=f"“{source.name}” already exists in that folder.")
+
+    shutil.move(str(source), str(new_path))
+    return back(dest_url, f"Moved “{source.name}”.")
 
 
 # --- articles -------------------------------------------------------------
