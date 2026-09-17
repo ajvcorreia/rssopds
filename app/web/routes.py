@@ -382,7 +382,10 @@ def _ebooks_folder(request: Request, subpath: str):
     target = ebooks.resolve(subpath)
     if target is None or not target.is_dir():
         return back("/ebooks", err="No such folder.")
-    dirs, files = ebooks.list_dir(target)
+    dir_names, file_rows = ebooks.list_dir(target)
+    dirs = [(name, ebooks.added_at(target / name)) for name in dir_names]
+    files = [(name, size, mime, ebooks.added_at(target / name))
+            for name, size, mime in file_rows]
     path = subpath.strip("/")
     parts = [p for p in path.split("/") if p]
     crumbs = []

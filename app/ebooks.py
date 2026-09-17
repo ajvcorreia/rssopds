@@ -6,6 +6,7 @@ page (app/web/routes.py) so path-safety only has to be gotten right once.
 from __future__ import annotations
 
 import mimetypes
+from datetime import datetime, timezone
 from pathlib import Path, PurePosixPath
 
 from .config import config
@@ -49,6 +50,20 @@ def resolve(subpath: str) -> Path | None:
 def is_safe_name(name: str) -> bool:
     """A single path segment: no slashes, no "..", not empty."""
     return bool(name) and name not in (".", "..") and "/" not in name and "\\" not in name
+
+
+def added_at(path: Path) -> datetime:
+    """The file's mtime, as the closest thing this shelf has to a date added.
+
+    Nothing else records one: a plain filesystem mirror has no database row
+    to put it in. This is the upload time for anything added through the web
+    UI (a fresh write always sets it), and whatever scp/rsync/docker cp
+    preserved for anything dropped in directly -- usually the original
+    file's own mtime, not the copy time, unless the transfer was told not to
+    preserve it. A move within the shelf keeps it, since that's a rename on
+    the same filesystem rather than a fresh write.
+    """
+    return datetime.fromtimestamp(path.stat().st_mtime, tz=timezone.utc)
 
 
 def list_dir(target: Path) -> tuple[list[str], list[tuple[str, int, str]]]:

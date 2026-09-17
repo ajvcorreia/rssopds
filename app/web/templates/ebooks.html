@@ -64,14 +64,15 @@ td.checkbox { width:1%; }
 <table>
   <tr>
     <th><input type="checkbox" id="select-all" onclick="toggleAll(this)"></th>
-    <th>Name</th><th>Size</th><th></th>
+    <th>Name</th><th>Size</th><th>Added</th><th></th>
   </tr>
-  {% for name in dirs %}
+  {% for name, added in dirs %}
   {% set child = (path + '/' + name) if path else name %}
   <tr>
     <td class="checkbox"><input type="checkbox" class="pick" name="dirs" value="{{ name }}"></td>
     <td>📁 <a href="/ebooks/{{ child|urlencode }}">{{ name }}</a></td>
     <td class="muted">—</td>
+    <td class="muted">{{ added|localtime }}</td>
     <td class="actions">
       <div class="action-buttons">
       <form class="inline" method="post" action="/ebooks/delete-folder/{{ child|urlencode }}"
@@ -82,13 +83,14 @@ td.checkbox { width:1%; }
     </td>
   </tr>
   {% endfor %}
-  {% for name, size, mime in files %}
+  {% for name, size, mime, added in files %}
   {% set child = (path + '/' + name) if path else name %}
   <tr>
     <td class="checkbox"><input type="checkbox" class="pick" name="files" value="{{ name }}"></td>
     <td><img class="cover-thumb" src="/ebooks/cover/{{ child|urlencode }}" alt=""
              loading="lazy" onerror="this.remove()">{{ name }}</td>
     <td class="muted">{{ size|filesizeformat }}</td>
+    <td class="muted">{{ added|localtime }}</td>
     <td class="actions">
       <div class="action-buttons">
       <a class="btn icon-btn" href="/ebooks/download/{{ child|urlencode }}"
