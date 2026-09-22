@@ -12,6 +12,7 @@ from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from .. import ebooks
+from .. import files as files_shelf
 from ..config import config
 from ..db import get_session, session_scope
 from ..models import (
@@ -39,6 +40,13 @@ def base_url(request: Request) -> str:
 
 def _resolve_ebook_path(subpath: str) -> Path:
     target = ebooks.resolve(subpath)
+    if target is None:
+        raise HTTPException(404, "not found")
+    return target
+
+
+def _resolve_shelf_file_path(subpath: str) -> Path:
+    target = files_shelf.resolve(subpath)
     if target is None:
         raise HTTPException(404, "not found")
     return target
@@ -99,6 +107,29 @@ def ebooks_download(subpath: str) -> Response:
     if not target.is_file():
         raise HTTPException(404, "not found")
     return FileResponse(target, media_type=ebooks.guess_mime(target), filename=target.name)
+
+
+@router.get("/opds/files")
+@router.get("/opds/files/{subpath:path}")
+def files_browse(request: Request, subpath: str = "") -> Response:
+    target = _resolve_shelf_file_path(subpath)
+    if not target.is_dir():
+        raise HTTPException(404, "not found")
+
+    dirs, files = files_shelf.list_dir(target)
+
+    xml = feedgen.files_nav(base=base_url(request), path=subpath.strip("/"),
+                            dirs=dirs, files=files)
+    return Response(content=xml, media_type=feedgen.OPDS_NAVIGATION)
+
+
+@router.get("/opds/files-file/{subpath:path}")
+def files_download(subpath: str) -> Response:
+    target = _resolve_shelf_file_path(subpath)
+    if not target.is_file():
+        raise HTTPException(404, "not found")
+    return FileResponse(target, media_type=files_shelf.guess_mime(target),
+                        filename=target.name)
 
 
 @router.get("/opds/cover/{category_id}.jpg")

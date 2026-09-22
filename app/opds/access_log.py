@@ -43,12 +43,16 @@ def _classify(path: str) -> tuple[str, int | None]:
     if match:
         return "cover", int(match.group(1))
     stripped = path.rstrip("/")
-    # ebooks-file must be checked before the ebooks nav prefix -- textually
-    # "/opds/ebooks-file/x" already starts with "/opds/ebooks".
-    if stripped.startswith("/opds/ebooks-file/"):
+    # ebooks-file/files-file must be checked before their nav prefixes --
+    # textually "/opds/ebooks-file/x" already starts with "/opds/ebooks", and
+    # likewise for files.
+    if (stripped.startswith("/opds/ebooks-file/")
+            or stripped.startswith("/opds/files-file/")):
         return "download", None
-    if (stripped in ("/opds", "/opds/rss") or stripped == "/opds/ebooks"
-            or stripped.startswith("/opds/ebooks/")):
+    if (stripped in ("/opds", "/opds/rss")
+            or stripped in ("/opds/ebooks", "/opds/files")
+            or stripped.startswith("/opds/ebooks/")
+            or stripped.startswith("/opds/files/")):
         return "catalog", None
     return "other", None
 

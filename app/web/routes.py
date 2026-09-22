@@ -18,7 +18,7 @@ from sqlalchemy.orm import Session, joinedload
 
 import httpx
 
-from .. import backup, ebooks, jobs, scheduler
+from .. import backup, ebooks, files as files_shelf, jobs, scheduler
 from ..config import config
 from ..db import get_session
 from ..models import (
@@ -502,33 +502,33 @@ def ebooks_delete_folder(subpath: str):
     return back(dest_url, f"Deleted “{name}” and everything in it.")
 
 
-def _bulk_selection(path: str, files: list[str],
+def _bulk_selection(shelf, path: str, files: list[str],
                     dirs: list[str]) -> tuple[Path | None, list[tuple[str, Path]]]:
     """Resolve checked filenames (relative to `path`) into real paths.
 
     Both bulk-delete and bulk-move take the same shape of form data: the
     current folder, plus the "files" and "dirs" checkboxes checked within it.
+    `shelf` is whichever shelf module (ebooks or files_shelf) the request is
+    for -- both expose the same resolve()/is_safe_name() pair.
     """
-    base = ebooks.resolve(path)
+    base = shelf.resolve(path)
     if base is None or not base.is_dir():
         return None, []
     items: list[tuple[str, Path]] = []
     for name in files:
-        if ebooks.is_safe_name(name):
+        if shelf.is_safe_name(name):
             items.append(("file", base / name))
     for name in dirs:
-        if ebooks.is_safe_name(name):
+        if shelf.is_safe_name(name):
             items.append(("dir", base / name))
     return base, items
 
 
-@router.post("/ebooks/bulk-delete")
-def ebooks_bulk_delete(path: str = Form(""), files: list[str] = Form([]),
-                       dirs: list[str] = Form([])):
-    dest_url = f"/ebooks/{urlquote(path)}" if path else "/ebooks"
-    base, items = _bulk_selection(path, files, dirs)
+def _bulk_delete(shelf, root: str, path: str, files: list[str], dirs: list[str]):
+    dest_url = f"{root}/{urlquote(path)}" if path else root
+    base, items = _bulk_selection(shelf, path, files, dirs)
     if base is None:
-        return back("/ebooks", err="No such folder.")
+        return back(root, err="No such folder.")
     if not items:
         return back(dest_url, err="Nothing selected.")
 
@@ -543,16 +543,15 @@ def ebooks_bulk_delete(path: str = Form(""), files: list[str] = Form([]),
     return back(dest_url, f"Deleted {deleted} item{'s' if deleted != 1 else ''}.")
 
 
-@router.post("/ebooks/bulk-move")
-def ebooks_bulk_move(path: str = Form(""), dest: str = Form(""),
-                     files: list[str] = Form([]), dirs: list[str] = Form([])):
-    dest_url = f"/ebooks/{urlquote(path)}" if path else "/ebooks"
-    base, items = _bulk_selection(path, files, dirs)
+def _bulk_move(shelf, root: str, path: str, dest: str, files: list[str],
+              dirs: list[str]):
+    dest_url = f"{root}/{urlquote(path)}" if path else root
+    base, items = _bulk_selection(shelf, path, files, dirs)
     if base is None:
-        return back("/ebooks", err="No such folder.")
+        return back(root, err="No such folder.")
     if not items:
         return back(dest_url, err="Nothing selected.")
-    target_dir = ebooks.resolve(dest)
+    target_dir = shelf.resolve(dest)
     if target_dir is None or not target_dir.is_dir():
         return back(dest_url, err="No such destination folder.")
 
@@ -579,6 +578,139 @@ def ebooks_bulk_move(path: str = Form(""), dest: str = Form(""),
     if skipped:
         msg += f" Skipped {skipped} (already there or a name clash)."
     return back(dest_url, msg)
+
+
+@router.post("/ebooks/bulk-delete")
+def ebooks_bulk_delete(path: str = Form(""), files: list[str] = Form([]),
+                       dirs: list[str] = Form([])):
+    return _bulk_delete(ebooks, "/ebooks", path, files, dirs)
+
+
+@router.post("/ebooks/bulk-move")
+def ebooks_bulk_move(path: str = Form(""), dest: str = Form(""),
+                     files: list[str] = Form([]), dirs: list[str] = Form([])):
+    return _bulk_move(ebooks, "/ebooks", path, dest, files, dirs)
+
+
+# --- files shelf -------------------------------------------------------------
+# A second, unrelated drop folder next to the Ebooks shelf (see app/files.py
+# and app/opds/routes.py): anything that isn't a book -- firmware images,
+# PDFs, zips -- that you want on a reader's own storage. Same "dumb mirror"
+# read/write pattern as Ebooks, minus the cover-thumbnail extraction, which
+# only makes sense for ebook formats.
+
+def _files_folder(request: Request, subpath: str):
+    target = files_shelf.resolve(subpath)
+    if target is None or not target.is_dir():
+        return back("/files", err="No such folder.")
+    dir_names, file_rows = files_shelf.list_dir(target)
+    dirs = [(name, files_shelf.added_at(target / name)) for name in dir_names]
+    files = [(name, size, mime, files_shelf.added_at(target / name))
+            for name, size, mime in file_rows]
+    path = subpath.strip("/")
+    parts = [p for p in path.split("/") if p]
+    crumbs = []
+    for i, part in enumerate(parts):
+        crumbs.append((part, "/".join(parts[: i + 1])))
+    return render(request, "files.html", path=path, parts=parts, crumbs=crumbs,
+                  dirs=dirs, files=files, folders=files_shelf.list_folders())
+
+
+@router.get("/files/download/{subpath:path}")
+def files_download(subpath: str):
+    """Download from the web UI, behind the web credentials.
+
+    Declared before the folder browser below for the same reason as
+    ebooks_download above: both match GET /files/{...:path}, and routes are
+    matched in declaration order.
+    """
+    from fastapi.responses import FileResponse
+
+    target = files_shelf.resolve(subpath)
+    if target is None or not target.is_file():
+        raise HTTPException(404, "no such file")
+    return FileResponse(target, media_type=files_shelf.guess_mime(target),
+                        filename=target.name)
+
+
+@router.get("/files", response_class=HTMLResponse)
+@router.get("/files/{subpath:path}", response_class=HTMLResponse)
+def files_folder(request: Request, subpath: str = ""):
+    return _files_folder(request, subpath)
+
+
+@router.post("/files/upload")
+async def files_upload(path: str = Form(""), files: list[UploadFile] = File(...)):
+    target = files_shelf.resolve(path)
+    if target is None or not target.is_dir():
+        return back("/files", err="No such folder.")
+
+    saved = 0
+    for upload in files:
+        name = Path(upload.filename or "").name
+        if not name or not files_shelf.is_safe_name(name):
+            continue
+        dest = target / name
+        with dest.open("wb") as fh:
+            shutil.copyfileobj(upload.file, fh)
+        saved += 1
+
+    dest_url = f"/files/{urlquote(path)}" if path else "/files"
+    if saved == 0:
+        return back(dest_url, err="No files were uploaded.")
+    return back(dest_url, f"Uploaded {saved} file{'s' if saved != 1 else ''}.")
+
+
+@router.post("/files/mkdir")
+def files_mkdir(path: str = Form(""), name: str = Form(...)):
+    target = files_shelf.resolve(path)
+    name = name.strip()
+    dest_url = f"/files/{urlquote(path)}" if path else "/files"
+    if target is None or not target.is_dir():
+        return back("/files", err="No such folder.")
+    if not files_shelf.is_safe_name(name):
+        return back(dest_url, err="Not a valid folder name.")
+    new_dir = target / name
+    if new_dir.exists():
+        return back(dest_url, err=f"“{name}” already exists.")
+    new_dir.mkdir()
+    return back(dest_url, f"Created “{name}”.")
+
+
+@router.post("/files/delete-file/{subpath:path}")
+def files_delete_file(subpath: str):
+    target = files_shelf.resolve(subpath)
+    parent = subpath.rsplit("/", 1)[0] if "/" in subpath else ""
+    dest_url = f"/files/{urlquote(parent)}" if parent else "/files"
+    if target is None or not target.is_file():
+        return back(dest_url, err="No such file.")
+    name = target.name
+    target.unlink()
+    return back(dest_url, f"Deleted “{name}”.")
+
+
+@router.post("/files/delete-folder/{subpath:path}")
+def files_delete_folder(subpath: str):
+    parent = subpath.rsplit("/", 1)[0] if "/" in subpath else ""
+    dest_url = f"/files/{urlquote(parent)}" if parent else "/files"
+    target = files_shelf.resolve(subpath)
+    if target is None or not target.is_dir() or not subpath.strip("/"):
+        return back(dest_url, err="No such folder.")
+    name = target.name
+    shutil.rmtree(target)
+    return back(dest_url, f"Deleted “{name}” and everything in it.")
+
+
+@router.post("/files/bulk-delete")
+def files_bulk_delete(path: str = Form(""), files: list[str] = Form([]),
+                      dirs: list[str] = Form([])):
+    return _bulk_delete(files_shelf, "/files", path, files, dirs)
+
+
+@router.post("/files/bulk-move")
+def files_bulk_move(path: str = Form(""), dest: str = Form(""),
+                    files: list[str] = Form([]), dirs: list[str] = Form([])):
+    return _bulk_move(files_shelf, "/files", path, dest, files, dirs)
 
 
 # --- articles -------------------------------------------------------------

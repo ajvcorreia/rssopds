@@ -61,6 +61,9 @@ def opds_root(*, base: str, title: str, publisher: str = "") -> str:
          "category, refreshed automatically."),
         ("ebooks", "Ebooks", f"{base}/opds/ebooks", OPDS_NAVIGATION,
          "Your own ebook library, organised in folders on the server."),
+        ("files", "Files", f"{base}/opds/files", OPDS_NAVIGATION,
+         "Anything else you want on this device -- firmware, documents, "
+         "whatever you've dropped in the Files shelf on the server."),
     )
     out = [
         '<?xml version="1.0" encoding="UTF-8"?>\n',
@@ -86,23 +89,25 @@ def opds_root(*, base: str, title: str, publisher: str = "") -> str:
     return "".join(out)
 
 
-def ebooks_nav(*, base: str, path: str, dirs: list[str],
+def _shelf_nav(*, kind: str, label: str, base: str, path: str, dirs: list[str],
                files: list[tuple[str, int, str]]) -> str:
-    """Folder listing under /opds/ebooks/<path>.
+    """Folder listing under /opds/<kind>/<path>, for a "dumb" shelf.
 
-    `path` is the current folder, POSIX-style and without a leading or
-    trailing slash ("" for the root). `dirs` are subfolder names; `files` are
-    (name, size_bytes, mime_type). Purely a mirror of the filesystem -- no
-    covers, no read tracking, nothing generated or remembered about it.
+    Shared by ebooks_nav and files_nav below -- `kind` is the URL segment
+    ("ebooks" or "files") and also namespaces the entry/feed ids. `path` is
+    the current folder, POSIX-style and without a leading or trailing slash
+    ("" for the root). `dirs` are subfolder names; `files` are (name,
+    size_bytes, mime_type). Purely a mirror of the filesystem -- no covers,
+    no read tracking, nothing generated or remembered about it.
     """
     parts = [p for p in path.split("/") if p]
-    title = parts[-1] if parts else "Ebooks"
-    self_href = f"{base}/opds/ebooks" + (f"/{quote(path)}" if path else "")
+    title = parts[-1] if parts else label
+    self_href = f"{base}/opds/{kind}" + (f"/{quote(path)}" if path else "")
     out = [
         '<?xml version="1.0" encoding="UTF-8"?>\n',
         '<feed xmlns="http://www.w3.org/2005/Atom" '
         'xmlns:opds="http://opds-spec.org/2010/catalog">\n',
-        f'  <id>urn:opds:ebooks:{_esc(path or "root")}</id>\n',
+        f'  <id>urn:opds:{kind}:{_esc(path or "root")}</id>\n',
         f'  <title>{_esc(title)}</title>\n',
         f'  <updated>{_stamp(None)}</updated>\n',
         _link("self", self_href, OPDS_NAVIGATION),
@@ -110,17 +115,17 @@ def ebooks_nav(*, base: str, path: str, dirs: list[str],
     ]
     if parts:
         up = "/".join(parts[:-1])
-        up_href = f"{base}/opds/ebooks" + (f"/{quote(up)}" if up else "")
+        up_href = f"{base}/opds/{kind}" + (f"/{quote(up)}" if up else "")
         out.append(_link("up", up_href, OPDS_NAVIGATION))
 
     for name in dirs:
         child = f"{path}/{name}" if path else name
         out.append("  <entry>\n")
-        out.append(f"    <id>urn:opds:ebooks-dir:{_esc(child)}</id>\n")
+        out.append(f"    <id>urn:opds:{kind}-dir:{_esc(child)}</id>\n")
         out.append(f"    <title>{_esc(name)}</title>\n")
         out.append(f"    <updated>{_stamp(None)}</updated>\n")
         out.append(f'    <link rel="subsection" '
-                   f'href={_attr(f"{base}/opds/ebooks/{quote(child)}")} '
+                   f'href={_attr(f"{base}/opds/{kind}/{quote(child)}")} '
                    f'type={_attr(OPDS_NAVIGATION)}/>\n')
         out.append("  </entry>\n")
 
@@ -128,17 +133,17 @@ def ebooks_nav(*, base: str, path: str, dirs: list[str],
         child = f"{path}/{name}" if path else name
         stem = name.rsplit(".", 1)[0] if "." in name else name
         out.append("  <entry>\n")
-        out.append(f"    <id>urn:opds:ebooks-file:{_esc(child)}</id>\n")
+        out.append(f"    <id>urn:opds:{kind}-file:{_esc(child)}</id>\n")
         out.append(f"    <title>{_esc(stem)}</title>\n")
         out.append(f"    <updated>{_stamp(None)}</updated>\n")
         out.append(f'    <link rel={_attr(REL_ACQUIRE)} '
-                   f'href={_attr(f"{base}/opds/ebooks-file/{quote(child)}")} '
+                   f'href={_attr(f"{base}/opds/{kind}-file/{quote(child)}")} '
                    f'type={_attr(mime)} length="{size}"/>\n')
         out.append("  </entry>\n")
 
     if not dirs and not files:
         out.append("  <entry>\n"
-                   "    <id>urn:opds:ebooks-empty</id>\n"
+                   f"    <id>urn:opds:{kind}-empty</id>\n"
                    "    <title>Nothing here yet</title>\n"
                    f"    <updated>{_stamp(None)}</updated>\n"
                    '    <content type="text">Drop files into this folder on '
@@ -147,6 +152,18 @@ def ebooks_nav(*, base: str, path: str, dirs: list[str],
 
     out.append("</feed>\n")
     return "".join(out)
+
+
+def ebooks_nav(*, base: str, path: str, dirs: list[str],
+               files: list[tuple[str, int, str]]) -> str:
+    return _shelf_nav(kind="ebooks", label="Ebooks", base=base, path=path,
+                      dirs=dirs, files=files)
+
+
+def files_nav(*, base: str, path: str, dirs: list[str],
+             files: list[tuple[str, int, str]]) -> str:
+    return _shelf_nav(kind="files", label="Files", base=base, path=path,
+                      dirs=dirs, files=files)
 
 
 def rss_catalog(*, title: str, base: str, entries: list[tuple[Category, Edition]],

@@ -1,0 +1,141 @@
+{% extends "base.html" %}
+{% block title %}Files{% endblock %}
+{% macro folder_options() %}
+  {% for f in folders %}
+  <option value="{{ f }}"{% if f == path %} selected{% endif %}>{{ f or 'Files (root)' }}</option>
+  {% endfor %}
+{% endmacro %}
+{% block body %}
+<style>
+.icon-btn { padding:5px 8px; font-size:15px; line-height:1; }
+td.checkbox { width:1%; }
+.bulk-bar { display:flex; align-items:center; gap:10px; flex-wrap:wrap;
+  margin-bottom:14px; }
+.bulk-bar .count { color:var(--muted); font-size:13px; }
+</style>
+<h1>Files</h1>
+<p class="sub">A dumb, read-only-over-OPDS mirror of whatever sits in this
+  folder on the server — for anything that isn't a book. Drop a firmware
+  image, PDF, or anything else here and it's downloadable from a connected
+  reader the same way an ebook is; nothing gets cleaned up or tracked, it's
+  a plain shelf.</p>
+
+<p class="small">
+  <a href="/files">Files</a>
+  {% for name, crumb in crumbs %} / <a href="/files/{{ crumb|urlencode }}">{{ name }}</a>{% endfor %}
+</p>
+
+<div class="card">
+  <h2 style="margin-top:0">Upload files</h2>
+  <form method="post" action="/files/upload" enctype="multipart/form-data">
+    <input type="hidden" name="path" value="{{ path }}">
+    <label>Files
+      <span class="hint">Uploading here saves into “{{ path or 'Files' }}”. A
+        file with the same name is overwritten.</span>
+      <input type="file" name="files" multiple required>
+    </label>
+    <p><button class="primary" type="submit">Upload</button></p>
+  </form>
+</div>
+
+<div class="card">
+  <h2 style="margin-top:0">New folder</h2>
+  <form method="post" action="/files/mkdir" class="row">
+    <input type="hidden" name="path" value="{{ path }}">
+    <div><label>Name<input type="text" name="name" required></label></div>
+    <div class="narrow"><button type="submit">Create</button></div>
+  </form>
+</div>
+
+<div class="card">
+{% if dirs or files %}
+<form method="post" id="bulk-form" onsubmit="return submitBulk(event)">
+  <input type="hidden" name="path" value="{{ path }}">
+  <div class="bulk-bar">
+    <button type="submit" formaction="/files/bulk-delete" class="danger">
+      🗑 Delete selected</button>
+    <select name="dest" style="width:auto;max-width:11em">{{ folder_options() }}</select>
+    <button type="submit" formaction="/files/bulk-move">➡ Move selected</button>
+    <span class="count" id="bulk-count"></span>
+  </div>
+<table>
+  <tr>
+    <th><input type="checkbox" id="select-all" onclick="toggleAll(this)"></th>
+    <th>Name</th><th>Size</th><th>Added</th><th></th>
+  </tr>
+  {% for name, added in dirs %}
+  {% set child = (path + '/' + name) if path else name %}
+  <tr>
+    <td class="checkbox"><input type="checkbox" class="pick" name="dirs" value="{{ name }}"></td>
+    <td>📁 <a href="/files/{{ child|urlencode }}">{{ name }}</a></td>
+    <td class="muted">—</td>
+    <td class="muted">{{ added|localtime }}</td>
+    <td class="actions">
+      <div class="action-buttons">
+      <form class="inline" method="post" action="/files/delete-folder/{{ child|urlencode }}"
+            onsubmit="return confirm('Delete “{{ name }}” and everything in it?')">
+        <button class="danger icon-btn" type="submit" title="Delete “{{ name }}”">🗑</button>
+      </form>
+      </div>
+    </td>
+  </tr>
+  {% endfor %}
+  {% for name, size, mime, added in files %}
+  {% set child = (path + '/' + name) if path else name %}
+  <tr>
+    <td class="checkbox"><input type="checkbox" class="pick" name="files" value="{{ name }}"></td>
+    <td>{{ name }}</td>
+    <td class="muted">{{ size|filesizeformat }}</td>
+    <td class="muted">{{ added|localtime }}</td>
+    <td class="actions">
+      <div class="action-buttons">
+      <a class="btn icon-btn" href="/files/download/{{ child|urlencode }}"
+         title="Download “{{ name }}”">⬇</a>
+      <form class="inline" method="post" action="/files/delete-file/{{ child|urlencode }}"
+            onsubmit="return confirm('Delete “{{ name }}”?')">
+        <button class="danger icon-btn" type="submit" title="Delete “{{ name }}”">🗑</button>
+      </form>
+      </div>
+    </td>
+  </tr>
+  {% endfor %}
+</table>
+</form>
+<script>
+function checkedBoxes() {
+  return document.querySelectorAll('#bulk-form input.pick:checked');
+}
+function toggleAll(box) {
+  document.querySelectorAll('#bulk-form input.pick').forEach(function (el) {
+    el.checked = box.checked;
+  });
+  updateCount();
+}
+function updateCount() {
+  var n = checkedBoxes().length;
+  document.getElementById('bulk-count').textContent =
+    n ? n + ' selected' : '';
+}
+document.querySelectorAll('#bulk-form input.pick').forEach(function (el) {
+  el.addEventListener('change', updateCount);
+});
+function submitBulk(event) {
+  var n = checkedBoxes().length;
+  if (n === 0) {
+    alert('Select at least one file or folder first.');
+    return false;
+  }
+  var btn = event.submitter;
+  if (btn && btn.formAction.indexOf('bulk-delete') !== -1) {
+    return confirm('Delete ' + n + ' selected item' + (n === 1 ? '' : 's') +
+                   '? This cannot be undone.');
+  }
+  return true;
+}
+</script>
+{% else %}
+<p class="empty">Nothing here yet — upload a file or drop one onto this
+  folder on the server.</p>
+{% endif %}
+</div>
+{% endblock %}

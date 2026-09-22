@@ -25,6 +25,9 @@ the catalogue once the reader has actually finished downloading them.
 - **An Ebooks folder alongside RSS**: drop your own books into `data/ebooks/`
   on the server (in whatever folders you like) and browse them from the same
   OPDS catalogue — see [Ebooks](#ebooks) below.
+- **A Files folder for anything else**: a second, identical shelf at
+  `data/files/` for non-book files — firmware images, PDFs, whatever you want
+  on a reader's own storage — see [Files](#files) below.
 
 ## Quick start
 
@@ -325,6 +328,17 @@ as an actual ebook.
 Because an ereader that only understands a flat acquisition feed will not
 show folders, point such a device directly at `/opds/rss` to skip straight to
 the RSS side, exactly as before this feature existed.
+
+## Files
+
+A second shelf, identical in every way to Ebooks above except that it lives
+at `data/files/`, is exposed at `/opds/files` and `/files`, and has no
+cover-thumbnail extraction (there's no assumption these are books at all).
+Use it for anything you want to pull onto a reader's own storage the same way
+you'd sync a book — a firmware image you plan to flash from the device's SD
+card once it's downloaded, a PDF manual, or anything else. Populate it the
+same way as Ebooks: drop files in directly on the server, or upload, create
+folders, move, and delete from the **Files** page in the web UI.
 
 ## OPDS log
 

@@ -1,15 +1,15 @@
 """Filesystem helpers for the dumb Ebooks shelf (data/ebooks/).
 
 Shared between the OPDS browser (app/opds/routes.py) and the web UI's upload
-page (app/web/routes.py) so path-safety only has to be gotten right once.
+page (app/web/routes.py) so path-safety only has to be gotten right once. The
+actual path-safety and listing logic lives in app/shelf.py, shared with the
+Files shelf (app/files.py) -- this module just points a Shelf at ebooks_dir
+and adds the ebook-format MIME table.
 """
 from __future__ import annotations
 
-import mimetypes
-from datetime import datetime, timezone
-from pathlib import Path, PurePosixPath
-
 from .config import config
+from .shelf import Shelf, added_at, is_safe_name  # noqa: F401 -- re-exported
 
 # mimetypes' built-in table doesn't know most ebook formats.
 MIME_OVERRIDES = {
@@ -22,80 +22,9 @@ MIME_OVERRIDES = {
     ".fb2": "application/x-fictionbook+xml",
 }
 
+_shelf = Shelf(config.ebooks_dir, MIME_OVERRIDES)
 
-def guess_mime(path: Path) -> str:
-    override = MIME_OVERRIDES.get(path.suffix.lower())
-    return override or mimetypes.guess_type(path.name)[0] or "application/octet-stream"
-
-
-def resolve(subpath: str) -> Path | None:
-    """Resolve a URL subpath to a real path strictly inside ebooks_dir.
-
-    Checked before it ever reaches pathlib's `/` operator: joining onto an
-    absolute right-hand operand silently discards the left side entirely, so
-    a subpath of "/etc/passwd" would otherwise become a real filesystem
-    escape rather than a rejected request. Returns None for anything that
-    doesn't resolve safely inside the shelf.
-    """
-    rel = PurePosixPath(subpath)
-    if rel.is_absolute() or ".." in rel.parts:
-        return None
-    base = config.ebooks_dir.resolve()
-    target = (base / subpath).resolve()
-    if target != base and base not in target.parents:
-        return None
-    return target
-
-
-def is_safe_name(name: str) -> bool:
-    """A single path segment: no slashes, no "..", not empty."""
-    return bool(name) and name not in (".", "..") and "/" not in name and "\\" not in name
-
-
-def added_at(path: Path) -> datetime:
-    """The file's mtime, as the closest thing this shelf has to a date added.
-
-    Nothing else records one: a plain filesystem mirror has no database row
-    to put it in. This is the upload time for anything added through the web
-    UI (a fresh write always sets it), and whatever scp/rsync/docker cp
-    preserved for anything dropped in directly -- usually the original
-    file's own mtime, not the copy time, unless the transfer was told not to
-    preserve it. A move within the shelf keeps it, since that's a rename on
-    the same filesystem rather than a fresh write.
-    """
-    return datetime.fromtimestamp(path.stat().st_mtime, tz=timezone.utc)
-
-
-def list_dir(target: Path) -> tuple[list[str], list[tuple[str, int, str]]]:
-    """Return (subfolder names, [(filename, size_bytes, mime), ...]), sorted."""
-    dirs: list[str] = []
-    files: list[tuple[str, int, str]] = []
-    for entry in sorted(target.iterdir(), key=lambda p: p.name.lower()):
-        if entry.name.startswith("."):
-            continue
-        if entry.is_dir():
-            dirs.append(entry.name)
-        elif entry.is_file():
-            files.append((entry.name, entry.stat().st_size, guess_mime(entry)))
-    return dirs, files
-
-
-def list_folders() -> list[str]:
-    """Every folder under the shelf, as relative POSIX paths ("" is the root).
-
-    Powers the "move to" destination picker -- small enough a shelf like this
-    to just list them all rather than browse one level at a time.
-    """
-    base = config.ebooks_dir.resolve()
-    out = [""]
-
-    def walk(dir_path: Path, prefix: str) -> None:
-        for entry in sorted(dir_path.iterdir(), key=lambda p: p.name.lower()):
-            if entry.is_dir() and not entry.name.startswith("."):
-                child = f"{prefix}/{entry.name}" if prefix else entry.name
-                out.append(child)
-                walk(entry, child)
-
-    if base.is_dir():
-        walk(base, "")
-    return out
+guess_mime = _shelf.guess_mime
+resolve = _shelf.resolve
+list_dir = _shelf.list_dir
+list_folders = _shelf.list_folders

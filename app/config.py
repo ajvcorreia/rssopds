@@ -66,9 +66,17 @@ class Config(BaseSettings):
     def ebook_cover_dir(self) -> Path:
         return self.data_dir / "ebook_covers"
 
+    @property
+    def files_dir(self) -> Path:
+        # A second, unrelated drop folder next to ebooks_dir: arbitrary files
+        # (firmware images, docs, anything) you want to pull onto a reader's
+        # storage over OPDS or the web UI, kept out of the ebook listing and
+        # its cover-thumbnail logic. Same "dumb mirror" design as ebooks_dir.
+        return self.data_dir / "files"
+
     def ensure_dirs(self) -> None:
         for d in (self.data_dir, self.epub_dir, self.image_dir, self.cover_dir,
-                 self.ebooks_dir, self.ebook_cover_dir):
+                 self.ebooks_dir, self.ebook_cover_dir, self.files_dir):
             d.mkdir(parents=True, exist_ok=True)
 
 
